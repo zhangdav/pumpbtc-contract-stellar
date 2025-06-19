@@ -16,6 +16,9 @@ fn check_nonnegative_amount(amount: i128) {
     }
 }
 
+/// TODO: Add Check for minter
+/// TODO: Add Ownable2Step
+/// TODO: Change name to PumpToken
 #[contract]
 pub struct Token;
 

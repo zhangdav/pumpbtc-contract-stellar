@@ -1,0 +1,101 @@
+use soroban_sdk::{contracttype, symbol_short, Address, Env};
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NewTotalStakingCapEvent {
+    pub old_total_staking_cap: i128,
+    pub new_total_staking_cap: i128,
+}
+
+pub(crate) fn new_total_staking_cap(
+    e: &Env,
+    old_total_staking_cap: i128,
+    new_total_staking_cap: i128,
+) {
+    let event: NewTotalStakingCapEvent = NewTotalStakingCapEvent {
+        old_total_staking_cap,
+        new_total_staking_cap,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("set_cap")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NewNormalUnstakeFeeEvent {
+    pub old_normal_unstake_fee: i128,
+    pub new_normal_unstake_fee: i128,
+}
+
+pub(crate) fn new_normal_unstake_fee(
+    e: &Env,
+    old_normal_unstake_fee: i128,
+    new_normal_unstake_fee: i128,
+) {
+    let event: NewNormalUnstakeFeeEvent = NewNormalUnstakeFeeEvent {
+        old_normal_unstake_fee,
+        new_normal_unstake_fee,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("set_nfee")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SetInstantUnstakeFeeEvent {
+    pub old_instant_unstake_fee: i128,
+    pub new_instant_unstake_fee: i128,
+}
+
+pub(crate) fn set_instant_unstake_fee(
+    e: &Env,
+    old_instant_unstake_fee: i128,
+    new_instant_unstake_fee: i128,
+) {
+    let event: SetInstantUnstakeFeeEvent = SetInstantUnstakeFeeEvent {
+        old_instant_unstake_fee,
+        new_instant_unstake_fee,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("set_ifee")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SetOperatorEvent {
+    pub old_operator: Option<Address>,
+    pub new_operator: Address,
+}
+
+pub(crate) fn set_operator(e: &Env, old_operator: Option<Address>, new_operator: Address) {
+    let event: SetOperatorEvent = SetOperatorEvent {
+        old_operator: old_operator,
+        new_operator: new_operator,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("set_op")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SetOnlyAllowStakeEvent {
+    pub only_allow_stake: bool,
+}
+
+pub(crate) fn set_only_allow_stake(e: &Env, only_allow_stake: bool) {
+    let event: SetOnlyAllowStakeEvent = SetOnlyAllowStakeEvent { only_allow_stake };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("set_op")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CollectFeeEvent {
+    pub fee_amount: i128,
+}
+
+pub(crate) fn collect_fee(e: &Env, fee_amount: i128) {
+    let event: CollectFeeEvent = CollectFeeEvent { fee_amount };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("collect")), event);
+}
