@@ -12,4 +12,5 @@ pub enum PumpBTCStakingError {
     StakingCapTooSmall = 5,
     FeeShouldBeBetween0And10000 = 6,
     NoFeeToCollect = 7,
+    NoPendingStakeAmount = 8,
 }
