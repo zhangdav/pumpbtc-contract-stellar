@@ -1,13 +1,14 @@
 //! This contract demonstrates a sample implementation of the Soroban token
 //! interface.
 use crate::admin::{has_administrator, read_administrator, write_administrator};
+use crate::minter::{read_minter, write_minter};
 use crate::allowance::{read_allowance, spend_allowance, write_allowance};
 use crate::balance::{read_balance, receive_balance, spend_balance};
 use crate::metadata::{read_decimal, read_name, read_symbol, write_metadata};
 use crate::storage_types::{AllowanceDataKey, AllowanceValue, DataKey};
 use crate::storage_types::{INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD};
 use soroban_sdk::token::{self, Interface as _};
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 use soroban_token_sdk::metadata::TokenMetadata;
 use soroban_token_sdk::TokenUtils;
 
@@ -22,7 +23,7 @@ pub struct Token;
 
 #[contractimpl]
 impl Token {
-    pub fn initialize(e: Env, admin: Address, decimal: u32, name: String, symbol: String) {
+    pub fn initialize(e: Env, admin: Address, minter: Address, decimal: u32, name: String, symbol: String) {
         if has_administrator(&e) {
             panic!("already initialized")
         }
@@ -30,6 +31,8 @@ impl Token {
         if decimal > u8::MAX.into() {
             panic!("Decimal must fit in a u8");
         }
+
+        write_minter(&e, &minter);
 
         write_metadata(
             &e,
@@ -41,17 +44,18 @@ impl Token {
         )
     }
 
+    // Only minter can call mint
     pub fn mint(e: Env, to: Address, amount: i128) {
         check_nonnegative_amount(amount);
-        let admin = read_administrator(&e);
-        admin.require_auth();
+        let minter = read_minter(&e);
+        minter.require_auth();
 
         e.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 
         receive_balance(&e, to.clone(), amount);
-        TokenUtils::new(&e).events().mint(admin, to, amount);
+        TokenUtils::new(&e).events().mint(minter, to, amount);
     }
 
     pub fn set_admin(e: Env, new_admin: Address) {
@@ -64,6 +68,19 @@ impl Token {
 
         write_administrator(&e, &new_admin);
         TokenUtils::new(&e).events().set_admin(admin, new_admin);
+    }
+
+    // Only admin can set new minter
+    pub fn set_minter(e: Env, new_minter: Address) {
+        let admin = read_administrator(&e);
+        admin.require_auth();
+
+        e.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+
+        write_minter(&e, &new_minter);
+        e.events().publish((symbol_short!("minter"), admin), new_minter);
     }
 
     pub fn get_allowance(e: Env, from: Address, spender: Address) -> Option<AllowanceValue> {
@@ -133,8 +150,10 @@ impl token::Interface for Token {
         TokenUtils::new(&e).events().transfer(from, to, amount)
     }
 
+    // Only minter can call burn
     fn burn(e: Env, from: Address, amount: i128) {
-        from.require_auth();
+        let minter = read_minter(&e);
+        minter.require_auth();
 
         check_nonnegative_amount(amount);
 
@@ -146,8 +165,10 @@ impl token::Interface for Token {
         TokenUtils::new(&e).events().burn(from, amount);
     }
 
+    // Only minter can call burn_from
     fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
-        spender.require_auth();
+        let minter = read_minter(&e);
+        minter.require_auth();
 
         check_nonnegative_amount(amount);
 

@@ -1,6 +1,7 @@
 #![no_std]
 
 mod admin;
+mod minter;
 mod allowance;
 mod balance;
 mod contract;

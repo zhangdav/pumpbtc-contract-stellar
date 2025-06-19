@@ -8,9 +8,9 @@ use soroban_sdk::{
     Address, Env, IntoVal, Symbol,
 };
 
-fn create_token<'a>(e: &Env, admin: &Address) -> TokenClient<'a> {
+fn create_token<'a>(e: &Env, admin: &Address, minter: &Address) -> TokenClient<'a> {
     let token = TokenClient::new(e, &e.register(Token, ()));
-    token.initialize(admin, &7, &"name".into_val(e), &"symbol".into_val(e));
+    token.initialize(admin, minter,&8, &"pumpBTC".into_val(e), &"pumpBTC".into_val(e));
     token
 }
 
@@ -21,16 +21,21 @@ fn test() {
 
     let admin1 = Address::generate(&e);
     let admin2 = Address::generate(&e);
+    let minter1 = Address::generate(&e);
+    let minter2 = Address::generate(&e);
     let user1 = Address::generate(&e);
     let user2 = Address::generate(&e);
     let user3 = Address::generate(&e);
-    let token = create_token(&e, &admin1);
+    let token = create_token(&e, &admin1, &minter1);
+
+    // Test set new minter
+    token.set_minter(&minter2);
 
     token.mint(&user1, &1000);
     assert_eq!(
         e.auths(),
         std::vec![(
-            admin1.clone(),
+            minter2.clone(),
             AuthorizedInvocation {
                 function: AuthorizedFunction::Contract((
                     token.address.clone(),
@@ -143,9 +148,10 @@ fn test_burn() {
     e.mock_all_auths();
 
     let admin = Address::generate(&e);
+    let minter = Address::generate(&e);
     let user1 = Address::generate(&e);
     let user2 = Address::generate(&e);
-    let token = create_token(&e, &admin);
+    let token = create_token(&e, &admin, &minter);
 
     token.mint(&user1, &1000);
     assert_eq!(token.balance(&user1), 1000);
@@ -157,7 +163,7 @@ fn test_burn() {
     assert_eq!(
         e.auths(),
         std::vec![(
-            user2.clone(),
+            minter.clone(),
             AuthorizedInvocation {
                 function: AuthorizedFunction::Contract((
                     token.address.clone(),
@@ -177,7 +183,7 @@ fn test_burn() {
     assert_eq!(
         e.auths(),
         std::vec![(
-            user1.clone(),
+            minter.clone(),
             AuthorizedInvocation {
                 function: AuthorizedFunction::Contract((
                     token.address.clone(),
@@ -200,9 +206,10 @@ fn transfer_insufficient_balance() {
     e.mock_all_auths();
 
     let admin = Address::generate(&e);
+    let minter = Address::generate(&e);
     let user1 = Address::generate(&e);
     let user2 = Address::generate(&e);
-    let token = create_token(&e, &admin);
+    let token = create_token(&e, &admin, &minter);
 
     token.mint(&user1, &1000);
     assert_eq!(token.balance(&user1), 1000);
@@ -217,10 +224,11 @@ fn transfer_from_insufficient_allowance() {
     e.mock_all_auths();
 
     let admin = Address::generate(&e);
+    let minter = Address::generate(&e);
     let user1 = Address::generate(&e);
     let user2 = Address::generate(&e);
     let user3 = Address::generate(&e);
-    let token = create_token(&e, &admin);
+    let token = create_token(&e, &admin, &minter);
 
     token.mint(&user1, &1000);
     assert_eq!(token.balance(&user1), 1000);
@@ -236,9 +244,10 @@ fn transfer_from_insufficient_allowance() {
 fn initialize_already_initialized() {
     let e = Env::default();
     let admin = Address::generate(&e);
-    let token = create_token(&e, &admin);
+    let minter = Address::generate(&e);
+    let token = create_token(&e, &admin, &minter);
 
-    token.initialize(&admin, &10, &"name".into_val(&e), &"symbol".into_val(&e));
+    token.initialize(&admin, &minter, &10, &"name".into_val(&e), &"symbol".into_val(&e));
 }
 
 #[test]
@@ -246,13 +255,58 @@ fn initialize_already_initialized() {
 fn decimal_is_over_max() {
     let e = Env::default();
     let admin = Address::generate(&e);
+    let minter = Address::generate(&e);
     let token = TokenClient::new(&e, &e.register(Token, ()));
     token.initialize(
         &admin,
+        &minter,
         &(u32::from(u8::MAX) + 1),
         &"name".into_val(&e),
         &"symbol".into_val(&e),
     );
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_non_minter_cannot_mint() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let minter = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    let token = create_token(&e, &admin, &minter);
+    
+    token.mint(&user, &1000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_non_minter_cannot_burn() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let minter = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    let token = create_token(&e, &admin, &minter);
+    token.mint(&user, &1000);
+
+    token.burn(&user, &500);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_non_minter_cannot_burn_from() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let minter = Address::generate(&e);
+    let user1 = Address::generate(&e);
+    let user2 = Address::generate(&e);
+
+    let token = create_token(&e, &admin, &minter);
+    token.mint(&user1, &1000);
+    token.approve(&user1, &user2, &500, &200);
+
+    token.burn_from(&user2, &user1, &500);
 }
 
 #[test]
@@ -262,9 +316,10 @@ fn test_zero_allowance() {
     e.mock_all_auths();
 
     let admin = Address::generate(&e);
+    let minter = Address::generate(&e);
     let spender = Address::generate(&e);
     let from = Address::generate(&e);
-    let token = create_token(&e, &admin);
+    let token = create_token(&e, &admin, &minter);
 
     token.transfer_from(&spender, &from, &spender, &0);
     assert!(token.get_allowance(&from, &spender).is_none());
