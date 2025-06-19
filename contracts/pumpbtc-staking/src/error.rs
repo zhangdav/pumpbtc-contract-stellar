@@ -13,4 +13,8 @@ pub enum PumpBTCStakingError {
     FeeShouldBeBetween0And10000 = 6,
     NoFeeToCollect = 7,
     NoPendingStakeAmount = 8,
+    ExceedStakingCap = 9,
+    ClaimPreviousUnstakeFirst = 10,
+    NotReachedClaimableTime = 11,
+    InsufficientPendingStakeAmount = 12,
 }

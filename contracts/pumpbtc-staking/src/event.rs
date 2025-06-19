@@ -131,3 +131,71 @@ pub(crate) fn deposit(e: &Env, operator: Address, pumpbtc_staking: Address, amou
     e.events()
         .publish(("PumpBTCStaking", symbol_short!("deposit")), event);
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StakeEvent {
+    pub user: Address,
+    pub amount: i128,
+}
+
+pub(crate) fn stake(e: &Env, user: Address, amount: i128) {
+    let event: StakeEvent = StakeEvent {
+        user,
+        amount,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("stake")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnstakeRequestEvent {
+    pub user: Address,
+    pub amount: i128,
+    pub slot: u32,
+}
+
+pub(crate) fn unstake_request(e: &Env, user: Address, amount: i128, slot: u32) {
+    let event: UnstakeRequestEvent = UnstakeRequestEvent {
+        user,
+        amount,
+        slot,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("unstake")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimSlotEvent {
+    pub user: Address,
+    pub amount: i128,
+    pub slot: u32,
+}
+
+pub(crate) fn claim_slot(e: &Env, user: Address, amount: i128, slot: u32) {
+    let event: ClaimSlotEvent = ClaimSlotEvent {
+        user,
+        amount,
+        slot,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("claim")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnstakeInstantEvent {
+    pub user: Address,
+    pub amount: i128,
+}
+
+pub(crate) fn unstake_instant(e: &Env, user: Address, amount: i128) {
+    let event: UnstakeInstantEvent = UnstakeInstantEvent {
+        user,
+        amount,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("unstake_i")), event);
+}
