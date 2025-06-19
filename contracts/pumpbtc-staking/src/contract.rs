@@ -3,7 +3,7 @@ use crate::error::PumpBTCStakingError;
 use crate::event;
 use crate::storage::*;
 use crate::storage_types::{MAX_DATE_SLOT, SECONDS_PER_DAY, UTC_OFFSET};
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, IntoVal, Symbol};
 
 #[contract]
 pub struct PumpBTCStaking;
@@ -306,191 +306,172 @@ impl PumpBTCStaking {
         Ok(())
     }
 
-    // // ========================= 用户功能 =========================
+    // ========================= User Functions =========================
 
-    // pub fn stake(e: Env, user: Address, amount: i128) {
-    //     user.require_auth();
+    fn stake(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
 
-    //     check_nonnegative_amount(amount);
-    //     if amount <= 0 {
-    //         panic!("amount should be greater than 0");
-    //     }
+        user.require_auth();
+        check_nonnegative_amount(amount)?;
 
-    //     let current_staking = read_total_staking_amount(&e);
-    //     let staking_cap = read_total_staking_cap(&e);
+        let total_staking_amount = read_total_staking_amount(&e);
+        let total_staking_cap = read_total_staking_cap(&e);
 
-    //     if current_staking + amount > staking_cap {
-    //         panic!("exceed staking cap");
-    //     }
+        if total_staking_amount + amount > total_staking_cap {
+            return Err(PumpBTCStakingError::ExceedStakingCap);
+        }
 
-    //     // 更新状态
-    //     write_total_staking_amount(&e, current_staking + amount);
-    //     let current_pending = read_pending_stake_amount(&e);
-    //     write_pending_stake_amount(&e, current_pending + amount);
+        write_total_staking_amount(&e, total_staking_amount + amount);
+        let pending_stake_amount = read_pending_stake_amount(&e);
+        write_pending_stake_amount(&e, pending_stake_amount + amount);
 
-    //     // 转移资产代币到合约
-    //     let asset_token = read_asset_token_address(&e);
-    //     let asset_client = token::Client::new(&e, &asset_token);
-    //     asset_client.transfer_from(
-    //         &e.current_contract_address(),
-    //         &user,
-    //         &e.current_contract_address(),
-    //         &amount,
-    //     );
+        let asset_token = read_asset_token_address(&e);
+        let asset_client = token::Client::new(&e, &asset_token);
 
-    //     // 铸造pumpBTC给用户 - 调用我们自定义的mint函数
-    //     let pump_token = read_pump_token_address(&e);
-    //     e.invoke_contract::<()>(
-    //         &pump_token,
-    //         &Symbol::new(&e, "mint"),
-    //         (user.clone(), amount).into_val(&e),
-    //     );
+        asset_client.transfer_from(
+            &e.current_contract_address(),
+            &user,
+            &e.current_contract_address(),
+            &adjust_amount(&e, amount),
+        );
 
-    //     e.events().publish((symbol_short!("stake"), user), amount);
-    // }
+        // Mint pumpBTC to user
+        let pump_token = read_pump_token_address(&e);
+        e.invoke_contract::<()>(
+            &pump_token,
+            &Symbol::new(&e, "mint"),
+            (user.clone(), amount).into_val(&e),
+        );
 
-    // pub fn unstake_request(e: Env, user: Address, amount: i128) {
-    //     user.require_auth();
-    //     check_unstake_allowed(&e);
+        event::stake(&e, user, amount);
+        Ok(())
+    }
 
-    //     check_nonnegative_amount(amount);
-    //     if amount <= 0 {
-    //         panic!("amount should be greater than 0");
-    //     }
+    fn unstake_request(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
 
-    //     let current_time = e.ledger().timestamp();
-    //     let slot = get_date_slot(current_time);
+        user.require_auth();
+        check_unstake_allowed(&e)?;
 
-    //     // 检查是否可以在这个槽位请求解质押
-    //     let last_request_time = read_pending_unstake_time(&e, &user, slot);
-    //     let current_pending = read_pending_unstake_amount(&e, &user, slot);
+        check_nonnegative_amount(amount)?;
 
-    //     const SECONDS_PER_DAY: u64 = 86400;
-    //     if current_time - last_request_time < SECONDS_PER_DAY && current_pending > 0 {
-    //         panic!("claim the previous unstake first");
-    //     }
+        let block_timestamp = e.ledger().timestamp();
+        let slot = get_date_slot(block_timestamp);
 
-    //     // 更新状态
-    //     write_pending_unstake_time(&e, &user, slot, current_time);
-    //     write_pending_unstake_amount(&e, &user, slot, current_pending + amount);
+        // Check if the user can request unstake in this slot
+        let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
+        let pending_unstake_amount = read_pending_unstake_amount(&e, &user, slot);
 
-    //     let current_staking = read_total_staking_amount(&e);
-    //     write_total_staking_amount(&e, current_staking - amount);
+        if block_timestamp - pending_unstake_time < SECONDS_PER_DAY && pending_unstake_amount > 0 {
+            return Err(PumpBTCStakingError::ClaimPreviousUnstakeFirst);
+        }
 
-    //     let current_requested = read_total_requested_amount(&e);
-    //     write_total_requested_amount(&e, current_requested + amount);
+        write_pending_unstake_time(&e, &user, slot, block_timestamp);
+        write_pending_unstake_amount(&e, &user, slot, pending_unstake_amount + amount);
 
-    //     // 销毁用户的pumpBTC
-    //     let pump_token = read_pump_token_address(&e);
-    //     e.invoke_contract::<()>(
-    //         &pump_token,
-    //         &Symbol::new(&e, "burn"),
-    //         (user.clone(), amount).into_val(&e),
-    //     );
+        let total_staking_amount = read_total_staking_amount(&e);
+        write_total_staking_amount(&e, total_staking_amount - amount);
 
-    //     e.events()
-    //         .publish((symbol_short!("unstake"), user, slot), amount);
-    // }
+        let total_requested_amount = read_total_requested_amount(&e);
+        write_total_requested_amount(&e, total_requested_amount + amount);
 
-    // pub fn claim_slot(e: Env, user: Address, slot: u32) -> i128 {
-    //     user.require_auth();
-    //     check_unstake_allowed(&e);
+        // Burn user's pumpBTC
+        let pump_token = read_pump_token_address(&e);
+        e.invoke_contract::<()>(
+            &pump_token,
+            &Symbol::new(&e, "burn"),
+            (user.clone(), amount).into_val(&e),
+        );
 
-    //     if slot >= MAX_DATE_SLOT {
-    //         panic!("invalid slot");
-    //     }
+        event::unstake_request(&e, user, amount, slot);
+        Ok(())
+    }
 
-    //     let amount = read_pending_unstake_amount(&e, &user, slot);
-    //     if amount <= 0 {
-    //         panic!("no pending unstake");
-    //     }
+    fn claim_slot(e: Env, user: Address, slot: u32) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
 
-    //     let request_time = read_pending_unstake_time(&e, &user, slot);
-    //     let current_time = e.ledger().timestamp();
+        user.require_auth();
+        check_unstake_allowed(&e)?;
 
-    //     const SECONDS_PER_DAY: u64 = 86400;
-    //     let required_wait = (MAX_DATE_SLOT - 1) as u64 * SECONDS_PER_DAY;
+        let amount = read_pending_unstake_amount(&e, &user, slot);
+        let normal_unstake_fee = read_normal_unstake_fee(&e);
+        let fee = amount * normal_unstake_fee / 10000;
 
-    //     if current_time - request_time < required_wait {
-    //         panic!("haven't reached the claimable time");
-    //     }
+        check_nonnegative_amount(fee)?;
 
-    //     // 计算费用
-    //     let fee_rate = read_normal_unstake_fee(&e);
-    //     let fee = amount * fee_rate / 10000;
-    //     let net_amount = amount - fee;
+        let block_timestamp = e.ledger().timestamp();
+        let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
 
-    //     // 清空该槽位
-    //     write_pending_unstake_amount(&e, &user, slot, 0);
+        if block_timestamp - pending_unstake_time >= (MAX_DATE_SLOT - 1) as u64 * SECONDS_PER_DAY {
+            return Err(PumpBTCStakingError::NotReachedClaimableTime);
+        }
 
-    //     // 更新总量
-    //     let current_claimable = read_total_claimable_amount(&e);
-    //     write_total_claimable_amount(&e, current_claimable - amount);
+        write_pending_unstake_amount(&e, &user, slot, 0);
 
-    //     let current_requested = read_total_requested_amount(&e);
-    //     write_total_requested_amount(&e, current_requested - amount);
+        let total_claimable_amount = read_total_claimable_amount(&e);
+        write_total_claimable_amount(&e, total_claimable_amount - amount);
 
-    //     let current_fee = read_collected_fee(&e);
-    //     write_collected_fee(&e, current_fee + fee);
+        let total_requested_amount = read_total_requested_amount(&e);
+        write_total_requested_amount(&e, total_requested_amount - amount);
 
-    //     // 转移资产给用户
-    //     let asset_token = read_asset_token_address(&e);
-    //     let asset_client = token::Client::new(&e, &asset_token);
-    //     asset_client.transfer(&e.current_contract_address(), &user, &net_amount);
+        let collected_fee = read_collected_fee(&e);
+        write_collected_fee(&e, collected_fee + fee);
 
-    //     e.events()
-    //         .publish((symbol_short!("claim"), user, slot), net_amount);
+        let asset_token = read_asset_token_address(&e);
+        let asset_client = token::Client::new(&e, &asset_token);
 
-    //     net_amount
-    // }
+        asset_client.transfer(&e.current_contract_address(), &user, &adjust_amount(&e, amount - fee));
 
-    // pub fn unstake_instant(e: Env, user: Address, amount: i128) -> i128 {
-    //     user.require_auth();
-    //     check_unstake_allowed(&e);
+        event::claim_slot(&e, user, amount, slot);
+        Ok(())
+    }
 
-    //     check_nonnegative_amount(amount);
-    //     if amount <= 0 {
-    //         panic!("amount should be greater than 0");
-    //     }
+    fn claim_all(e: Env, user: Address) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
+        Ok(())
+    }
 
-    //     let pending_stake = read_pending_stake_amount(&e);
-    //     if amount > pending_stake {
-    //         panic!("insufficient pending stake amount");
-    //     }
+    fn unstake_instant(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
 
-    //     // 计算费用
-    //     let fee_rate = read_instant_unstake_fee(&e);
-    //     let fee = amount * fee_rate / 10000;
-    //     let net_amount = amount - fee;
+        user.require_auth();
+        check_unstake_allowed(&e)?;
 
-    //     // 更新状态
-    //     let current_staking = read_total_staking_amount(&e);
-    //     write_total_staking_amount(&e, current_staking - amount);
-    //     write_pending_stake_amount(&e, pending_stake - amount);
+        let collected_fee = read_collected_fee(&e);
+        let fee = amount * collected_fee / 10000;
 
-    //     let current_fee = read_collected_fee(&e);
-    //     write_collected_fee(&e, current_fee + fee);
+        check_nonnegative_amount(amount)?;
 
-    //     // 销毁用户的pumpBTC
-    //     let pump_token = read_pump_token_address(&e);
-    //     e.invoke_contract::<()>(
-    //         &pump_token,
-    //         &Symbol::new(&e, "burn"),
-    //         (user.clone(), amount).into_val(&e),
-    //     );
+        let pending_stake_amount = read_pending_stake_amount(&e);
+        if amount > pending_stake_amount {
+            return Err(PumpBTCStakingError::InsufficientPendingStakeAmount);
+        }
 
-    //     // 转移资产给用户
-    //     let asset_token = read_asset_token_address(&e);
-    //     let asset_client = token::Client::new(&e, &asset_token);
-    //     asset_client.transfer(&e.current_contract_address(), &user, &net_amount);
+        let total_staking_amount = read_total_staking_amount(&e);
+        write_total_staking_amount(&e, total_staking_amount - amount);
 
-    //     e.events()
-    //         .publish((symbol_short!("instant"), user), net_amount);
+        write_pending_stake_amount(&e, pending_stake_amount - amount);
 
-    //     net_amount
-    // }
+        write_collected_fee(&e, collected_fee + fee);
 
-    // // ========================= 查询函数 =========================
+        // Burn user's pumpBTC
+        let pump_token = read_pump_token_address(&e);
+        e.invoke_contract::<()>(
+            &pump_token,
+            &Symbol::new(&e, "burn"),
+            (user.clone(), amount).into_val(&e),
+        );
+
+        let asset_token = read_asset_token_address(&e);
+        let asset_client = token::Client::new(&e, &asset_token);
+
+        asset_client.transfer(&e.current_contract_address(), &user, &adjust_amount(&e, amount - fee));
+
+        event::unstake_instant(&e, user, amount);
+        Ok(())
+    }
+
+    // // ========================= Getter Functions =========================
 
     // pub fn get_staking_info(e: Env) -> (i128, i128, i128, i128, i128) {
     //     (
