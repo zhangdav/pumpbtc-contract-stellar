@@ -85,17 +85,45 @@ pub struct SetOnlyAllowStakeEvent {
 pub(crate) fn set_only_allow_stake(e: &Env, only_allow_stake: bool) {
     let event: SetOnlyAllowStakeEvent = SetOnlyAllowStakeEvent { only_allow_stake };
     e.events()
-        .publish(("PumpBTCStaking", symbol_short!("set_op")), event);
+        .publish(("PumpBTCStaking", symbol_short!("set_allow")), event);
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CollectFeeEvent {
+    pub admin: Address,
     pub fee_amount: i128,
 }
 
-pub(crate) fn collect_fee(e: &Env, fee_amount: i128) {
-    let event: CollectFeeEvent = CollectFeeEvent { fee_amount };
+pub(crate) fn collect_fee(e: &Env, admin: Address, fee_amount: i128) {
+    let event: CollectFeeEvent = CollectFeeEvent { admin, fee_amount };
     e.events()
         .publish(("PumpBTCStaking", symbol_short!("collect")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawEvent {
+    pub operator: Address,
+    pub amount: i128,
+}
+
+pub(crate) fn withdraw(e: &Env, operator: Address, amount: i128) {
+    let event: WithdrawEvent = WithdrawEvent { operator, amount };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("withdraw")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DepositEvent {
+    pub operator: Address,
+    pub pumpbtc_staking: Address,
+    pub amount: i128,
+}
+
+pub(crate) fn deposit(e: &Env, operator: Address, pumpbtc_staking: Address, amount: i128) {
+    let event: DepositEvent = DepositEvent { operator, pumpbtc_staking, amount };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("deposit")), event);
 }

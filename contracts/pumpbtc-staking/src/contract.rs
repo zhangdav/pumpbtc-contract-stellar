@@ -173,70 +173,111 @@ impl PumpBTCStaking {
             let asset_client = token::Client::new(&e, &asset_token);
             asset_client.transfer(&e.current_contract_address(), &admin, &fee_amount);
 
-            event::collect_fee(&e, fee_amount);
+            event::collect_fee(&e, admin, fee_amount);
             Ok(())
         } else {
             return Err(PumpBTCStakingError::NoFeeToCollect);
         }
     }
 
-    // // ========================= 操作员功能 =========================
+    // ========================= Operator Functions =========================
 
-    // pub fn withdraw(e: Env) -> i128 {
-    //     let operator = read_operator(&e);
-    //     if operator.is_none() {
-    //         panic!("no operator set");
-    //     }
-    //     let operator = operator.unwrap();
-    //     check_operator(&e, &operator);
+    fn withdraw(e: Env) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
 
-    //     let pending_amount = read_pending_stake_amount(&e);
-    //     if pending_amount <= 0 {
-    //         panic!("no pending stake amount");
-    //     }
+        let operator = read_operator(&e);
+        if operator.is_none() {
+            return Err(PumpBTCStakingError::NoOperatorSet);
+        }
 
-    //     write_pending_stake_amount(&e, 0);
+        let operator = operator.unwrap();
+        check_operator(&e, &operator)?;
 
-    //     // 转移资产给操作员
-    //     let asset_token = read_asset_token_address(&e);
-    //     let asset_client = token::Client::new(&e, &asset_token);
-    //     asset_client.transfer(&e.current_contract_address(), &operator, &pending_amount);
+        let pending_amount = read_pending_stake_amount(&e);
+        if !pending_amount <= 0 {
+            write_pending_stake_amount(&e, 0);
 
-    //     e.events()
-    //         .publish((symbol_short!("withdraw"), operator), pending_amount);
+            let asset_token = read_asset_token_address(&e);
+            let asset_client = token::Client::new(&e, &asset_token);
+            asset_client.transfer(&e.current_contract_address(), &operator, &pending_amount);
 
-    //     pending_amount
-    // }
+            event::withdraw(&e, operator, pending_amount);
+            Ok(())
+        } else {
+            return Err(PumpBTCStakingError::NoPendingStakeAmount);
+        }
+    }
 
-    // pub fn deposit(e: Env, amount: i128) {
-    //     let operator = read_operator(&e);
-    //     if operator.is_none() {
-    //         panic!("no operator set");
-    //     }
-    //     let operator = operator.unwrap();
-    //     check_operator(&e, &operator);
+    fn deposit(e: Env, amount: i128) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
 
-    //     check_nonnegative_amount(amount);
-    //     if amount <= 0 {
-    //         panic!("amount should be greater than 0");
-    //     }
+        let operator = read_operator(&e);
+        if operator.is_none() {
+            return Err(PumpBTCStakingError::NoOperatorSet);
+        }
+        let operator = operator.unwrap();
+        check_operator(&e, &operator)?;
 
-    //     let current_claimable = read_total_claimable_amount(&e);
-    //     write_total_claimable_amount(&e, current_claimable + amount);
+        if !check_nonnegative_amount(amount).is_ok() {
+            let total_claimable_amount = read_total_claimable_amount(&e);
+            write_total_claimable_amount(&e, total_claimable_amount + amount);
 
-    //     // 从操作员转移资产到合约
-    //     let asset_token = read_asset_token_address(&e);
-    //     let asset_client = token::Client::new(&e, &asset_token);
-    //     asset_client.transfer_from(
-    //         &e.current_contract_address(),
-    //         &operator,
-    //         &e.current_contract_address(),
-    //         &amount,
-    //     );
+            let asset_token = read_asset_token_address(&e);
+            let asset_client = token::Client::new(&e, &asset_token);
+            asset_client.transfer_from(
+                &e.current_contract_address(),
+                &operator,
+                &e.current_contract_address(),
+                &amount,
+            );
 
-    //     e.events()
-    //         .publish((symbol_short!("deposit"), operator), amount);
-    // }
+            event::deposit(&e, operator, e.current_contract_address(), amount);
+            Ok(())
+        } else {
+            return Err(PumpBTCStakingError::NegativeAmountNotAllowed);
+        }
+    }
+
+    fn withdraw_and_deposit(e: Env, deposit_amount: i128, withdraw_amount: i128) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
+
+        let operator = read_operator(&e);
+        if operator.is_none() {
+            return Err(PumpBTCStakingError::NoOperatorSet);
+        }
+        let operator = operator.unwrap();
+        check_operator(&e, &operator)?;
+
+        let asset_token = read_asset_token_address(&e);
+        let asset_client = token::Client::new(&e, &asset_token);
+
+        if !check_nonnegative_amount(deposit_amount).is_ok() {
+
+            let old_pending_stake_amount = read_pending_stake_amount(&e);
+            write_pending_stake_amount(&e, 0);
+
+            let total_claimable_amount = read_total_claimable_amount(&e);
+            write_total_claimable_amount(&e, total_claimable_amount + deposit_amount);
+
+            event::withdraw(&e, operator.clone(), withdraw_amount);
+            event::deposit(&e, operator.clone(), e.current_contract_address(), deposit_amount);
+
+            if old_pending_stake_amount > deposit_amount {
+                asset_client.transfer(&e.current_contract_address(), &operator, &withdraw_amount);
+            } else if old_pending_stake_amount < deposit_amount {
+                asset_client.transfer_from(
+                    &e.current_contract_address(),
+                    &operator,
+                    &e.current_contract_address(),
+                    &deposit_amount,
+                );
+            }
+            
+            Ok(())
+        } else {
+            return Err(PumpBTCStakingError::NegativeAmountNotAllowed);
+        }
+    }
 
     // // ========================= 用户功能 =========================
 
