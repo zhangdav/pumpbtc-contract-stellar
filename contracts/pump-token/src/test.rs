@@ -10,7 +10,13 @@ use soroban_sdk::{
 
 fn create_token<'a>(e: &Env, admin: &Address, minter: &Address) -> TokenClient<'a> {
     let token = TokenClient::new(e, &e.register(Token, ()));
-    token.initialize(admin, minter,&8, &"pumpBTC".into_val(e), &"pumpBTC".into_val(e));
+    token.initialize(
+        admin,
+        minter,
+        &8,
+        &"pumpBTC".into_val(e),
+        &"pumpBTC".into_val(e),
+    );
     token
 }
 
@@ -247,7 +253,13 @@ fn initialize_already_initialized() {
     let minter = Address::generate(&e);
     let token = create_token(&e, &admin, &minter);
 
-    token.initialize(&admin, &minter, &10, &"name".into_val(&e), &"symbol".into_val(&e));
+    token.initialize(
+        &admin,
+        &minter,
+        &10,
+        &"name".into_val(&e),
+        &"symbol".into_val(&e),
+    );
 }
 
 #[test]
@@ -275,7 +287,7 @@ fn test_non_minter_cannot_mint() {
     let user = Address::generate(&e);
 
     let token = create_token(&e, &admin, &minter);
-    
+
     token.mint(&user, &1000);
 }
 
