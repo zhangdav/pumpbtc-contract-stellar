@@ -16,6 +16,7 @@ pub enum DataKey {
     Operator,
     PumpTokenAddress,
     AssetTokenAddress,
+    AssetDecimal,
     TotalStakingAmount,
     TotalStakingCap,
     TotalRequestedAmount,

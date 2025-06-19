@@ -147,6 +147,17 @@ pub fn write_asset_token_address(e: &Env, address: &Address) {
     // e.storage().instance().extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 }
 
+pub fn read_asset_decimal(e: &Env) -> u32 {
+    e.storage()
+        .instance()
+        .get(&DataKey::AssetDecimal)
+        .unwrap_or(8)
+}
+
+pub fn write_asset_decimal(e: &Env, decimal: u32) {
+    e.storage().instance().set(&DataKey::AssetDecimal, &decimal);
+}
+
 pub fn read_operator(e: &Env) -> Option<Address> {
     e.storage().instance().get(&DataKey::Operator)
 }
