@@ -21,6 +21,16 @@ fn get_date_slot(timestamp: u64) -> u32 {
     (((timestamp + UTC_OFFSET) / SECONDS_PER_DAY) % (MAX_DATE_SLOT as u64)) as u32
 }
 
+fn adjust_amount(e: &Env, amount: i128) -> i128 {
+    let asset_decimal = read_asset_decimal(e);
+    if asset_decimal == 8 {
+        amount
+    } else {
+        let factor = 10i128.pow(asset_decimal - 8);
+        amount * factor
+    }
+}
+
 fn check_operator(e: &Env, address: &Address) -> Result<(), PumpBTCStakingError> {
     let operator = read_operator(e);
     match operator {
@@ -56,6 +66,10 @@ impl PumpBTCStaking {
             write_pump_token_address(&e, &pump_token_address);
             write_asset_token_address(&e, &asset_token_address);
 
+            let asset_client = token::Client::new(&e, &asset_token_address);
+            let asset_decimal = asset_client.decimals();
+            write_asset_decimal(&e, asset_decimal);
+
             write_normal_unstake_fee(&e, 0);
             write_instant_unstake_fee(&e, 300);
             write_only_allow_stake(&e, true);
@@ -69,10 +83,7 @@ impl PumpBTCStaking {
 
     // ========================= Owner Functions =========================
 
-    fn set_total_staking_cap(
-        e: Env,
-        new_total_staking_cap: i128,
-    ) -> Result<(), PumpBTCStakingError> {
+    fn set_stake_asset_cap(e: Env, new_total_staking_cap: i128) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
 
         let admin = read_administrator(&e);
@@ -81,11 +92,11 @@ impl PumpBTCStaking {
         check_nonnegative_amount(new_total_staking_cap)?;
         let total_staking_amount = read_total_staking_amount(&e);
 
-        if !new_total_staking_cap < total_staking_amount {
+        if new_total_staking_cap >= total_staking_amount {
             let old_total_staking_cap = read_total_staking_cap(&e);
             write_total_staking_cap(&e, new_total_staking_cap);
 
-            event::new_total_staking_cap(&e, old_total_staking_cap, new_total_staking_cap);
+            event::set_stake_asset_cap(&e, old_total_staking_cap, new_total_staking_cap);
             Ok(())
         } else {
             return Err(PumpBTCStakingError::StakingCapTooSmall);
@@ -101,11 +112,11 @@ impl PumpBTCStaking {
         let admin = read_administrator(&e);
         admin.require_auth();
 
-        if !new_normal_unstake_fee >= 10000 {
+        if new_normal_unstake_fee < 10000 {
             let old_normal_unstake_fee = read_normal_unstake_fee(&e);
 
             write_normal_unstake_fee(&e, new_normal_unstake_fee);
-            event::new_normal_unstake_fee(&e, old_normal_unstake_fee, new_normal_unstake_fee);
+            event::set_normal_unstake_fee(&e, old_normal_unstake_fee, new_normal_unstake_fee);
             Ok(())
         } else {
             return Err(PumpBTCStakingError::FeeShouldBeBetween0And10000);
@@ -121,7 +132,7 @@ impl PumpBTCStaking {
         let admin = read_administrator(&e);
         admin.require_auth();
 
-        if !new_instant_unstake_fee >= 10000 {
+        if new_instant_unstake_fee < 10000 {
             let old_instant_unstake_fee = read_instant_unstake_fee(&e);
 
             write_instant_unstake_fee(&e, new_instant_unstake_fee);
@@ -165,13 +176,17 @@ impl PumpBTCStaking {
         admin.require_auth();
 
         let fee_amount = read_collected_fee(&e);
-        if !fee_amount <= 0 {
+        if fee_amount > 0 {
             write_collected_fee(&e, 0);
 
             let asset_token = read_asset_token_address(&e);
-            
+
             let asset_client = token::Client::new(&e, &asset_token);
-            asset_client.transfer(&e.current_contract_address(), &admin, &fee_amount);
+            asset_client.transfer(
+                &e.current_contract_address(),
+                &admin,
+                &adjust_amount(&e, fee_amount),
+            );
 
             event::collect_fee(&e, admin, fee_amount);
             Ok(())
@@ -193,15 +208,19 @@ impl PumpBTCStaking {
         let operator = operator.unwrap();
         check_operator(&e, &operator)?;
 
-        let pending_amount = read_pending_stake_amount(&e);
-        if !pending_amount <= 0 {
+        let old_pending_amount = read_pending_stake_amount(&e);
+        if old_pending_amount > 0 {
             write_pending_stake_amount(&e, 0);
 
             let asset_token = read_asset_token_address(&e);
             let asset_client = token::Client::new(&e, &asset_token);
-            asset_client.transfer(&e.current_contract_address(), &operator, &pending_amount);
+            asset_client.transfer(
+                &e.current_contract_address(),
+                &operator,
+                &adjust_amount(&e, old_pending_amount),
+            );
 
-            event::withdraw(&e, operator, pending_amount);
+            event::withdraw(&e, operator, old_pending_amount);
             Ok(())
         } else {
             return Err(PumpBTCStakingError::NoPendingStakeAmount);
@@ -218,27 +237,29 @@ impl PumpBTCStaking {
         let operator = operator.unwrap();
         check_operator(&e, &operator)?;
 
-        if !check_nonnegative_amount(amount).is_ok() {
-            let total_claimable_amount = read_total_claimable_amount(&e);
-            write_total_claimable_amount(&e, total_claimable_amount + amount);
+        check_nonnegative_amount(amount)?;
 
-            let asset_token = read_asset_token_address(&e);
-            let asset_client = token::Client::new(&e, &asset_token);
-            asset_client.transfer_from(
-                &e.current_contract_address(),
-                &operator,
-                &e.current_contract_address(),
-                &amount,
-            );
+        let total_claimable_amount = read_total_claimable_amount(&e);
+        write_total_claimable_amount(&e, total_claimable_amount + amount);
 
-            event::deposit(&e, operator, e.current_contract_address(), amount);
-            Ok(())
-        } else {
-            return Err(PumpBTCStakingError::NegativeAmountNotAllowed);
-        }
+        let asset_token = read_asset_token_address(&e);
+        let asset_client = token::Client::new(&e, &asset_token);
+        asset_client.transfer_from(
+            &e.current_contract_address(),
+            &operator,
+            &e.current_contract_address(),
+            &adjust_amount(&e, amount),
+        );
+
+        event::deposit(&e, operator, e.current_contract_address(), amount);
+        Ok(())
     }
 
-    fn withdraw_and_deposit(e: Env, deposit_amount: i128, withdraw_amount: i128) -> Result<(), PumpBTCStakingError> {
+    fn withdraw_and_deposit(
+        e: Env,
+        deposit_amount: i128,
+        withdraw_amount: i128,
+    ) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
 
         let operator = read_operator(&e);
@@ -251,32 +272,38 @@ impl PumpBTCStaking {
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
 
-        if !check_nonnegative_amount(deposit_amount).is_ok() {
+        check_nonnegative_amount(deposit_amount)?;
 
-            let old_pending_stake_amount = read_pending_stake_amount(&e);
-            write_pending_stake_amount(&e, 0);
+        let old_pending_stake_amount = read_pending_stake_amount(&e);
+        write_pending_stake_amount(&e, 0);
 
-            let total_claimable_amount = read_total_claimable_amount(&e);
-            write_total_claimable_amount(&e, total_claimable_amount + deposit_amount);
+        let total_claimable_amount = read_total_claimable_amount(&e);
+        write_total_claimable_amount(&e, total_claimable_amount + deposit_amount);
 
-            event::withdraw(&e, operator.clone(), withdraw_amount);
-            event::deposit(&e, operator.clone(), e.current_contract_address(), deposit_amount);
+        event::withdraw(&e, operator.clone(), withdraw_amount);
+        event::deposit(
+            &e,
+            operator.clone(),
+            e.current_contract_address(),
+            deposit_amount,
+        );
 
-            if old_pending_stake_amount > deposit_amount {
-                asset_client.transfer(&e.current_contract_address(), &operator, &withdraw_amount);
-            } else if old_pending_stake_amount < deposit_amount {
-                asset_client.transfer_from(
-                    &e.current_contract_address(),
-                    &operator,
-                    &e.current_contract_address(),
-                    &deposit_amount,
-                );
-            }
-            
-            Ok(())
-        } else {
-            return Err(PumpBTCStakingError::NegativeAmountNotAllowed);
+        if old_pending_stake_amount > deposit_amount {
+            asset_client.transfer(
+                &e.current_contract_address(),
+                &operator,
+                &adjust_amount(&e, withdraw_amount),
+            );
+        } else if old_pending_stake_amount < deposit_amount {
+            asset_client.transfer_from(
+                &e.current_contract_address(),
+                &operator,
+                &e.current_contract_address(),
+                &adjust_amount(&e, deposit_amount),
+            );
         }
+
+        Ok(())
     }
 
     // // ========================= 用户功能 =========================

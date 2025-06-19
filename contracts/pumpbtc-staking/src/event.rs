@@ -7,7 +7,7 @@ pub struct NewTotalStakingCapEvent {
     pub new_total_staking_cap: i128,
 }
 
-pub(crate) fn new_total_staking_cap(
+pub(crate) fn set_stake_asset_cap(
     e: &Env,
     old_total_staking_cap: i128,
     new_total_staking_cap: i128,
@@ -27,7 +27,7 @@ pub struct NewNormalUnstakeFeeEvent {
     pub new_normal_unstake_fee: i128,
 }
 
-pub(crate) fn new_normal_unstake_fee(
+pub(crate) fn set_normal_unstake_fee(
     e: &Env,
     old_normal_unstake_fee: i128,
     new_normal_unstake_fee: i128,
@@ -123,7 +123,11 @@ pub struct DepositEvent {
 }
 
 pub(crate) fn deposit(e: &Env, operator: Address, pumpbtc_staking: Address, amount: i128) {
-    let event: DepositEvent = DepositEvent { operator, pumpbtc_staking, amount };
+    let event: DepositEvent = DepositEvent {
+        operator,
+        pumpbtc_staking,
+        amount,
+    };
     e.events()
         .publish(("PumpBTCStaking", symbol_short!("deposit")), event);
 }
