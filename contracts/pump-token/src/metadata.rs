@@ -1,6 +1,8 @@
 use soroban_sdk::{Env, String};
 use soroban_token_sdk::{metadata::TokenMetadata, TokenUtils};
 
+pub const DECIMAL: u32 = 8;
+
 pub fn read_decimal(e: &Env) -> u32 {
     let util = TokenUtils::new(e);
     util.metadata().get_metadata().decimal
