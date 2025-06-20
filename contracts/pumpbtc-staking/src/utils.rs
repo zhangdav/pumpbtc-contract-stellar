@@ -1,4 +1,5 @@
 use soroban_sdk::Env;
+use crate::math::{safe_add, safe_div};
 
 use crate::error::PumpBTCStakingError;
 use crate::storage::{
@@ -14,7 +15,7 @@ pub fn check_unstake_allowed(e: &Env) -> Result<(), PumpBTCStakingError> {
 }
 
 pub fn get_date_slot(timestamp: u64) -> u32 {
-    (((timestamp + UTC_OFFSET) / SECONDS_PER_DAY) % (MAX_DATE_SLOT as u64)) as u32
+    (safe_div(safe_add(timestamp as i128, UTC_OFFSET as i128).unwrap(), SECONDS_PER_DAY as i128).unwrap() % (MAX_DATE_SLOT as i128)) as u32
 }
 
 pub fn extend_instance_ttl(e: &Env) {
