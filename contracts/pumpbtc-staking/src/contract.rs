@@ -35,7 +35,6 @@ pub trait PumpBTCStakingContractTrait {
     fn withdraw_and_deposit(
         e: Env,
         deposit_amount: i128,
-        withdraw_amount: i128,
     ) -> Result<(), PumpBTCStakingError>;
     fn stake(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError>;
     fn unstake_request(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError>;
@@ -282,8 +281,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
     fn withdraw_and_deposit(
         e: Env,
-        deposit_amount: i128,
-        withdraw_amount: i128,
+        deposit_amount: i128
     ) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
 
@@ -298,7 +296,6 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         let asset_client = token::Client::new(&e, &asset_token);
 
         check_nonnegative_amount(deposit_amount)?;
-        check_nonnegative_amount(withdraw_amount)?;
 
         let old_pending_stake_amount = read_pending_stake_amount(&e);
         write_pending_stake_amount(&e, 0);
@@ -318,14 +315,14 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             asset_client.transfer(
                 &e.current_contract_address(),
                 &operator,
-                &adjust_amount(&e, withdraw_amount),
+                &adjust_amount(&e, deposit_amount),
             );
         } else if old_pending_stake_amount < deposit_amount {
             asset_client.transfer_from(
                 &e.current_contract_address(),
                 &operator,
                 &e.current_contract_address(),
-                &adjust_amount(&e, deposit_amount),
+                &adjust_amount(&e, deposit_amount - old_pending_stake_amount),
             );
         }
 
