@@ -13,7 +13,6 @@ fn create_token<'a>(e: &Env, admin: &Address, minter: &Address) -> PumpTokenClie
     token.initialize(
         admin,
         minter,
-        &8,
         &"pumpBTC".into_val(e),
         &"pumpBTC".into_val(e),
     );
@@ -239,23 +238,6 @@ fn initialize_already_initialized() {
     token.initialize(
         &admin,
         &minter,
-        &10,
-        &"name".into_val(&e),
-        &"symbol".into_val(&e),
-    );
-}
-
-#[test]
-#[should_panic(expected = "Decimal must fit in a u8")]
-fn decimal_is_over_max() {
-    let e = Env::default();
-    let admin = Address::generate(&e);
-    let minter = Address::generate(&e);
-    let token = PumpTokenClient::new(&e, &e.register(PumpToken, ()));
-    token.initialize(
-        &admin,
-        &minter,
-        &(u32::from(u8::MAX) + 1),
         &"name".into_val(&e),
         &"symbol".into_val(&e),
     );

@@ -1,7 +1,7 @@
 use crate::admin::{has_administrator, read_administrator, write_administrator, read_pending_administrator, remove_pending_administrator, write_pending_administrator};
 use crate::allowance::{read_allowance, spend_allowance, write_allowance};
 use crate::balance::{read_balance, receive_balance, spend_balance};
-use crate::metadata::{read_decimal, read_name, read_symbol, write_metadata};
+use crate::metadata::{read_decimal, read_name, read_symbol, write_metadata, DECIMAL};
 use crate::minter::{read_minter, write_minter};
 use crate::error::PumpTokenError;
 use crate::storage_types::{AllowanceDataKey, AllowanceValue, DataKey};
@@ -24,7 +24,6 @@ pub trait PumpTokenTrait {
         e: Env,
         admin: Address,
         minter: Address,
-        decimal: u32,
         name: String,
         symbol: String,
     );
@@ -50,7 +49,6 @@ impl PumpTokenTrait for PumpToken {
         e: Env,
         admin: Address,
         minter: Address,
-        decimal: u32,
         name: String,
         symbol: String,
     ) {
@@ -58,16 +56,13 @@ impl PumpTokenTrait for PumpToken {
             panic!("already initialized")
         }
         write_administrator(&e, &admin);
-        if decimal > u8::MAX.into() {
-            panic!("Decimal must fit in a u8");
-        }
 
         write_minter(&e, &minter);
 
         write_metadata(
             &e,
             TokenMetadata {
-                decimal,
+                decimal: DECIMAL,
                 name,
                 symbol,
             },
