@@ -1,15 +1,13 @@
 use crate::auth::{check_operator, has_administrator, read_administrator, write_administrator};
 use crate::error::PumpBTCStakingError;
 use crate::event;
-use crate::math::{adjust_amount, check_nonnegative_amount};
+use crate::math::{adjust_amount, check_nonnegative_amount, safe_mul, safe_add, safe_sub, safe_div};
 use crate::storage::*;
 use crate::utils::{check_unstake_allowed, extend_instance_ttl, get_date_slot};
-use soroban_sdk::{contract, contractimpl, token, Address, Env, IntoVal, Symbol};
+use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, IntoVal, Symbol};
 
-/// TODO: should use safe math, and create math.rs
 /// TODO: Add Ownable2Step
 /// TODO: Add Pausable
-/// TODO: should create contract interface and unit test
 pub trait PumpBTCStakingContractTrait {
     fn initialize(
         e: Env,
@@ -17,6 +15,7 @@ pub trait PumpBTCStakingContractTrait {
         pump_token_address: Address,
         asset_token_address: Address,
     ) -> Result<(), PumpBTCStakingError>;
+    fn upgrade(e: Env, hash: BytesN<32>);
     fn set_stake_asset_cap(e: Env, new_total_staking_cap: i128) -> Result<(), PumpBTCStakingError>;
     fn set_normal_unstake_fee(
         e: Env,
@@ -92,6 +91,14 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
     }
 
     // ========================= Owner Functions =========================
+
+    fn upgrade(e: Env, hash: BytesN<32>) {
+        let admin = read_administrator(&e);
+        admin.require_auth();
+
+        e.deployer().update_current_contract_wasm(hash);
+        e.storage().instance().extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+    }
 
     fn set_stake_asset_cap(e: Env, new_total_staking_cap: i128) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
@@ -250,7 +257,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         check_nonnegative_amount(amount)?;
 
         let total_claimable_amount = read_total_claimable_amount(&e);
-        write_total_claimable_amount(&e, total_claimable_amount + amount);
+        write_total_claimable_amount(&e, safe_add(total_claimable_amount, amount)?);
 
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
@@ -288,9 +295,9 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         write_pending_stake_amount(&e, 0);
 
         let total_claimable_amount = read_total_claimable_amount(&e);
-        write_total_claimable_amount(&e, total_claimable_amount + deposit_amount);
+        write_total_claimable_amount(&e, safe_add(total_claimable_amount, deposit_amount)?);
 
-        event::withdraw(&e, operator.clone(), withdraw_amount);
+        event::withdraw(&e, operator.clone(), old_pending_stake_amount);
         event::deposit(
             &e,
             operator.clone(),
@@ -327,13 +334,13 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         let total_staking_amount = read_total_staking_amount(&e);
         let total_staking_cap = read_total_staking_cap(&e);
 
-        if total_staking_amount + amount > total_staking_cap {
+        if safe_add(total_staking_amount, amount)? > total_staking_cap {
             return Err(PumpBTCStakingError::ExceedStakingCap);
         }
 
-        write_total_staking_amount(&e, total_staking_amount + amount);
+        write_total_staking_amount(&e, safe_add(total_staking_amount, amount)?);
         let pending_stake_amount = read_pending_stake_amount(&e);
-        write_pending_stake_amount(&e, pending_stake_amount + amount);
+        write_pending_stake_amount(&e, safe_add(pending_stake_amount, amount)?);
 
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
@@ -372,18 +379,18 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
         let pending_unstake_amount = read_pending_unstake_amount(&e, &user, slot);
 
-        if block_timestamp - pending_unstake_time < SECONDS_PER_DAY && pending_unstake_amount > 0 {
+        if safe_sub(block_timestamp as i128, pending_unstake_time as i128)? < SECONDS_PER_DAY as i128 && pending_unstake_amount > 0 {
             return Err(PumpBTCStakingError::ClaimPreviousUnstakeFirst);
         }
 
         write_pending_unstake_time(&e, &user, slot, block_timestamp);
-        write_pending_unstake_amount(&e, &user, slot, pending_unstake_amount + amount);
+        write_pending_unstake_amount(&e, &user, slot, safe_add(pending_unstake_amount, amount)?);
 
         let total_staking_amount = read_total_staking_amount(&e);
-        write_total_staking_amount(&e, total_staking_amount - amount);
+        write_total_staking_amount(&e, safe_sub(total_staking_amount, amount)?);
 
         let total_requested_amount = read_total_requested_amount(&e);
-        write_total_requested_amount(&e, total_requested_amount + amount);
+        write_total_requested_amount(&e, safe_add(total_requested_amount, amount)?);
 
         // Burn user's pumpBTC
         let pump_token = read_pump_token_address(&e);
@@ -405,27 +412,27 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
         let amount = read_pending_unstake_amount(&e, &user, slot);
         let normal_unstake_fee = read_normal_unstake_fee(&e);
-        let fee = amount * normal_unstake_fee / 10000;
+        let fee = safe_div(safe_mul(amount, normal_unstake_fee)?, 10000)?;
 
         check_nonnegative_amount(fee)?;
 
         let block_timestamp = e.ledger().timestamp();
         let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
 
-        if block_timestamp - pending_unstake_time >= (MAX_DATE_SLOT - 1) as u64 * SECONDS_PER_DAY {
+        if safe_sub(block_timestamp as i128, pending_unstake_time as i128)? >= safe_mul(safe_sub(MAX_DATE_SLOT as i128, 1)?, SECONDS_PER_DAY as i128)? as i128 {
             return Err(PumpBTCStakingError::NotReachedClaimableTime);
         }
 
         write_pending_unstake_amount(&e, &user, slot, 0);
 
         let total_claimable_amount = read_total_claimable_amount(&e);
-        write_total_claimable_amount(&e, total_claimable_amount - amount);
+        write_total_claimable_amount(&e, safe_sub(total_claimable_amount, amount)?);
 
         let total_requested_amount = read_total_requested_amount(&e);
-        write_total_requested_amount(&e, total_requested_amount - amount);
+        write_total_requested_amount(&e, safe_sub(total_requested_amount, amount)?);
 
         let collected_fee = read_collected_fee(&e);
-        write_collected_fee(&e, collected_fee + fee);
+        write_collected_fee(&e, safe_add(collected_fee, fee)?);
 
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
@@ -433,7 +440,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         asset_client.transfer(
             &e.current_contract_address(),
             &user,
-            &adjust_amount(&e, amount - fee),
+            &adjust_amount(&e, safe_sub(amount, fee)?),
         );
 
         event::claim_slot(&e, user, amount, slot);
@@ -453,25 +460,25 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         for slot in 0..MAX_DATE_SLOT {
             let amount = read_pending_unstake_amount(&e, &user, slot);
             let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
-            let ready_to_claim = block_timestamp - pending_unstake_time
-                >= (MAX_DATE_SLOT - 1) as u64 * SECONDS_PER_DAY;
+            let ready_to_claim = safe_sub(block_timestamp as i128, pending_unstake_time as i128)?
+                >= safe_mul(safe_sub(MAX_DATE_SLOT as i128, 1)?, SECONDS_PER_DAY as i128)? as i128;
 
             if amount > 0 {
-                pending_count += 1;
+                pending_count = safe_add(pending_count as i128, 1)? as u32;
                 if ready_to_claim {
-                    total_amount += amount;
+                    total_amount = safe_add(total_amount, amount)?;
                     write_pending_unstake_amount(&e, &user, slot, 0);
                 }
             }
         }
 
-        let fee = total_amount * read_normal_unstake_fee(&e) / 10000;
+        let fee = safe_div(safe_mul(total_amount, read_normal_unstake_fee(&e))?, 10000)?;
 
         check_nonnegative_amount(pending_count as i128)?;
         check_nonnegative_amount(total_amount)?;
 
         let collected_fee = read_collected_fee(&e);
-        write_collected_fee(&e, collected_fee + fee);
+        write_collected_fee(&e, safe_add(collected_fee, fee)?);
 
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
@@ -479,7 +486,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         asset_client.transfer(
             &e.current_contract_address(),
             &user,
-            &adjust_amount(&e, total_amount - fee),
+            &adjust_amount(&e, safe_sub(total_amount, fee)?),
         );
 
         event::claim_all(&e, user, total_amount);
@@ -492,8 +499,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         user.require_auth();
         check_unstake_allowed(&e)?;
 
-        let collected_fee = read_collected_fee(&e);
-        let fee = amount * collected_fee / 10000;
+        let fee = safe_div(safe_mul(amount, read_instant_unstake_fee(&e))?, 10000)?;
 
         check_nonnegative_amount(amount)?;
 
@@ -503,11 +509,12 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         }
 
         let total_staking_amount = read_total_staking_amount(&e);
-        write_total_staking_amount(&e, total_staking_amount - amount);
+        write_total_staking_amount(&e, safe_sub(total_staking_amount, amount)?);
 
-        write_pending_stake_amount(&e, pending_stake_amount - amount);
+        write_pending_stake_amount(&e, safe_sub(pending_stake_amount, amount)?);
 
-        write_collected_fee(&e, collected_fee + fee);
+        let collected_fee = read_collected_fee(&e);
+        write_collected_fee(&e, safe_add(collected_fee, fee)?);
 
         // Burn user's pumpBTC
         let pump_token = read_pump_token_address(&e);
@@ -523,7 +530,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         asset_client.transfer(
             &e.current_contract_address(),
             &user,
-            &adjust_amount(&e, amount - fee),
+            &adjust_amount(&e, safe_sub(amount, fee)?),
         );
 
         event::unstake_instant(&e, user, amount);

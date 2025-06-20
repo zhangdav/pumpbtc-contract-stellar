@@ -19,3 +19,19 @@ pub fn adjust_amount(e: &Env, amount: i128) -> i128 {
         amount * factor
     }
 }
+
+pub fn safe_mul(a: i128, b: i128) -> Result<i128, PumpBTCStakingError> {
+    a.checked_mul(b).ok_or(PumpBTCStakingError::MathOverflow)
+}
+
+pub fn safe_add(a: i128, b: i128) -> Result<i128, PumpBTCStakingError> {
+    a.checked_add(b).ok_or(PumpBTCStakingError::MathOverflow)
+}
+
+pub fn safe_sub(a: i128, b: i128) -> Result<i128, PumpBTCStakingError> {
+    a.checked_sub(b).ok_or(PumpBTCStakingError::MathOverflow)
+}
+
+pub fn safe_div(a: i128, b: i128) -> Result<i128, PumpBTCStakingError> {
+    a.checked_div(b).ok_or(PumpBTCStakingError::MathOverflow)
+}
