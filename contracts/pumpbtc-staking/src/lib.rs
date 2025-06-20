@@ -1,9 +1,11 @@
 #![no_std]
 
-mod admin;
+mod auth;
 mod contract;
 mod error;
 mod event;
+mod math;
 mod storage;
+mod utils;
 
 pub use contract::PumpBTCStakingClient;
