@@ -135,8 +135,6 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         let admin = read_administrator(&e);
         admin.require_auth();
 
-        check_nonnegative_amount(new_normal_unstake_fee)?;
-
         if new_normal_unstake_fee < 10000 {
             let old_normal_unstake_fee = read_normal_unstake_fee(&e);
 
@@ -156,8 +154,6 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
         let admin = read_administrator(&e);
         admin.require_auth();
-
-        check_nonnegative_amount(new_instant_unstake_fee)?;
 
         if new_instant_unstake_fee < 10000 {
             let old_instant_unstake_fee = read_instant_unstake_fee(&e);
@@ -298,8 +294,6 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
 
-        check_nonnegative_amount(deposit_amount)?;
-
         let old_pending_stake_amount = read_pending_stake_amount(&e);
         write_pending_stake_amount(&e, 0);
 
@@ -392,28 +386,28 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             < SECONDS_PER_DAY as i128
             && pending_unstake_amount > 0
         {
+            write_pending_unstake_time(&e, &user, slot, block_timestamp);
+            write_pending_unstake_amount(&e, &user, slot, safe_add(pending_unstake_amount, amount)?);
+
+            let total_staking_amount = read_total_staking_amount(&e);
+            write_total_staking_amount(&e, safe_sub(total_staking_amount, amount)?);
+
+            let total_requested_amount = read_total_requested_amount(&e);
+            write_total_requested_amount(&e, safe_add(total_requested_amount, amount)?);
+
+            // Burn user's pumpBTC
+            let pump_token = read_pump_token_address(&e);
+            e.invoke_contract::<()>(
+                &pump_token,
+                &Symbol::new(&e, "burn"),
+                (user.clone(), amount).into_val(&e),
+            );
+
+            event::unstake_request(&e, user, amount, slot);
+            Ok(())
+        } else {
             return Err(PumpBTCStakingError::ClaimPreviousUnstakeFirst);
         }
-
-        write_pending_unstake_time(&e, &user, slot, block_timestamp);
-        write_pending_unstake_amount(&e, &user, slot, safe_add(pending_unstake_amount, amount)?);
-
-        let total_staking_amount = read_total_staking_amount(&e);
-        write_total_staking_amount(&e, safe_sub(total_staking_amount, amount)?);
-
-        let total_requested_amount = read_total_requested_amount(&e);
-        write_total_requested_amount(&e, safe_add(total_requested_amount, amount)?);
-
-        // Burn user's pumpBTC
-        let pump_token = read_pump_token_address(&e);
-        e.invoke_contract::<()>(
-            &pump_token,
-            &Symbol::new(&e, "burn"),
-            (user.clone(), amount).into_val(&e),
-        );
-
-        event::unstake_request(&e, user, amount, slot);
-        Ok(())
     }
 
     fn claim_slot(e: Env, user: Address, slot: u32) -> Result<(), PumpBTCStakingError> {
@@ -425,8 +419,6 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         let amount = read_pending_unstake_amount(&e, &user, slot);
         let normal_unstake_fee = read_normal_unstake_fee(&e);
         let fee = safe_div(safe_mul(amount, normal_unstake_fee)?, 10000)?;
-
-        check_nonnegative_amount(fee)?;
 
         let block_timestamp = e.ledger().timestamp();
         let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
@@ -493,8 +485,10 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         check_nonnegative_amount(pending_count as i128)?;
         check_nonnegative_amount(total_amount)?;
 
-        let collected_fee = read_collected_fee(&e);
-        write_collected_fee(&e, safe_add(collected_fee, fee)?);
+        write_total_claimable_amount(&e, safe_sub(read_total_claimable_amount(&e), total_amount)?);
+        write_total_requested_amount(&e, safe_sub(read_total_requested_amount(&e), total_amount)?);
+
+        write_collected_fee(&e, safe_add(read_collected_fee(&e), fee)?);
 
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
