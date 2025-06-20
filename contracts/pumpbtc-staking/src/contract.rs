@@ -78,10 +78,16 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
             let asset_client = token::Client::new(&e, &asset_token_address);
             let asset_decimal = asset_client.decimals();
-            if asset_decimal != 8 {
-                return Err(PumpBTCStakingError::InvalidAssetDecimal);
+            if asset_decimal < 8 {
+                return Err(PumpBTCStakingError::AssetDecimalTooSmall);
             }
             write_asset_decimal(&e, asset_decimal);
+
+            let pump_token_client = token::Client::new(&e, &pump_token_address);
+            let pump_token_decimal = pump_token_client.decimals();
+            if pump_token_decimal != 8 {
+                return Err(PumpBTCStakingError::InvalidPumpTokenDecimal);
+            }
 
             write_normal_unstake_fee(&e, 0);
             write_instant_unstake_fee(&e, 300);
@@ -423,7 +429,9 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         let block_timestamp = e.ledger().timestamp();
         let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
 
-        check_nonnegative_amount(amount)?;
+        if amount <= 0 {
+            return Err(PumpBTCStakingError::NoPendingUnstake);
+        }
 
         if safe_sub(block_timestamp as i128, pending_unstake_time as i128)?
             >= safe_mul(safe_sub(MAX_DATE_SLOT as i128, 1)?, SECONDS_PER_DAY as i128)? as i128
