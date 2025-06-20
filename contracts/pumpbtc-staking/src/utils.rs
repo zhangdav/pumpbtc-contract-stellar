@@ -2,9 +2,16 @@ use soroban_sdk::Env;
 
 use crate::error::PumpBTCStakingError;
 use crate::storage::{
-    read_only_allow_stake, INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD, MAX_DATE_SLOT,
+    read_only_allow_stake, read_paused, INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD, MAX_DATE_SLOT,
     SECONDS_PER_DAY, UTC_OFFSET,
 };
+
+pub fn check_not_paused(e: &Env) -> Result<(), PumpBTCStakingError> {
+    if read_paused(e) {
+        return Err(PumpBTCStakingError::ContractIsPaused);
+    }
+    Ok(())
+}
 
 pub fn check_unstake_allowed(e: &Env) -> Result<(), PumpBTCStakingError> {
     if read_only_allow_stake(e) {

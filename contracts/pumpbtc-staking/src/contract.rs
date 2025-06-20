@@ -8,10 +8,9 @@ use crate::math::{
     adjust_amount, check_nonnegative_amount, safe_add, safe_div, safe_mul, safe_sub,
 };
 use crate::storage::*;
-use crate::utils::{check_unstake_allowed, extend_instance_ttl, get_date_slot};
+use crate::utils::{check_unstake_allowed, check_not_paused, extend_instance_ttl, get_date_slot};
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, IntoVal, Symbol};
 
-/// TODO: Add Pausable
 pub trait PumpBTCStakingContractTrait {
     fn initialize(
         e: Env,
@@ -46,6 +45,7 @@ pub trait PumpBTCStakingContractTrait {
     fn claim_slot(e: Env, user: Address, slot: u32) -> Result<(), PumpBTCStakingError>;
     fn claim_all(e: Env, user: Address) -> Result<(), PumpBTCStakingError>;
     fn unstake_instant(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError>;
+    
     fn get_max_date_slot(e: Env) -> u32;
     fn get_pump_token(e: Env) -> Address;
     fn get_asset_token(e: Env) -> Address;
@@ -62,6 +62,11 @@ pub trait PumpBTCStakingContractTrait {
     fn get_only_allow_stake(e: Env) -> bool;
     fn get_pending_unstake_time(e: Env, user: Address, slot: u32) -> u64;
     fn get_pending_unstake_amount(e: Env, user: Address, slot: u32) -> i128;
+
+    // Pausable functions
+    fn pause(e: Env) -> Result<(), PumpBTCStakingError>;
+    fn unpause(e: Env) -> Result<(), PumpBTCStakingError>;
+    fn is_paused(e: Env) -> bool;
 }
 
 #[contract]
@@ -380,6 +385,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
     fn stake(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
+        check_not_paused(&e)?;
 
         user.require_auth();
         check_nonnegative_amount(amount)?;
@@ -419,6 +425,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
     fn unstake_request(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
+        check_not_paused(&e)?;
 
         user.require_auth();
         check_unstake_allowed(&e)?;
@@ -467,6 +474,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
     fn claim_slot(e: Env, user: Address, slot: u32) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
+        check_not_paused(&e)?;
 
         user.require_auth();
         check_unstake_allowed(&e)?;
@@ -514,6 +522,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
     fn claim_all(e: Env, user: Address) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
+        check_not_paused(&e)?;
 
         user.require_auth();
         check_unstake_allowed(&e)?;
@@ -566,6 +575,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
     fn unstake_instant(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
+        check_not_paused(&e)?;
 
         user.require_auth();
         check_unstake_allowed(&e)?;
@@ -693,5 +703,42 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
     fn get_pending_unstake_amount(e: Env, user: Address, slot: u32) -> i128 {
         extend_instance_ttl(&e);
         read_pending_unstake_amount(&e, &user, slot)
+    }
+
+    // ========================= Pausable Functions =========================
+
+    fn pause(e: Env) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
+
+        let admin = read_administrator(&e);
+        admin.require_auth();
+
+        if read_paused(&e) {
+            return Err(PumpBTCStakingError::ContractIsPaused);
+        }
+
+        write_paused(&e, true);
+        event::paused(&e, admin);
+        Ok(())
+    }
+
+    fn unpause(e: Env) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
+
+        let admin = read_administrator(&e);
+        admin.require_auth();
+
+        if !read_paused(&e) {
+            return Err(PumpBTCStakingError::ContractIsNotPaused);
+        }
+
+        write_paused(&e, false);
+        event::unpaused(&e, admin);
+        Ok(())
+    }
+
+    fn is_paused(e: Env) -> bool {
+        extend_instance_ttl(&e);
+        read_paused(&e)
     }
 }

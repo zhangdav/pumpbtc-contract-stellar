@@ -242,3 +242,29 @@ pub(crate) fn renounce_admin(e: &Env, admin: Address) {
     e.events()
         .publish(("PumpBTCStaking", symbol_short!("ren_admin")), event);
 }
+
+// ===== Pausable Events =====
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PausedEvent {
+    pub admin: Address,
+}
+
+pub(crate) fn paused(e: &Env, admin: Address) {
+    let event: PausedEvent = PausedEvent { admin };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("paused")), event);
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnpausedEvent {
+    pub admin: Address,
+}
+
+pub(crate) fn unpaused(e: &Env, admin: Address) {
+    let event: UnpausedEvent = UnpausedEvent { admin };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("unpaused")), event);
+}
