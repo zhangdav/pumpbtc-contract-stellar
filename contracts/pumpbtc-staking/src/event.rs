@@ -243,8 +243,6 @@ pub(crate) fn renounce_admin(e: &Env, admin: Address) {
         .publish(("PumpBTCStaking", symbol_short!("ren_admin")), event);
 }
 
-// ===== Pausable Events =====
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PausedEvent {
