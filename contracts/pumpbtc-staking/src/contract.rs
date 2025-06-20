@@ -208,7 +208,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             asset_client.transfer(
                 &e.current_contract_address(),
                 &admin,
-                &adjust_amount(&e, fee_amount),
+                &adjust_amount(&e, fee_amount)?,
             );
 
             event::collect_fee(&e, admin, fee_amount);
@@ -240,7 +240,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             asset_client.transfer(
                 &e.current_contract_address(),
                 &operator,
-                &adjust_amount(&e, old_pending_amount),
+                &adjust_amount(&e, old_pending_amount)?,
             );
 
             event::withdraw(&e, operator, old_pending_amount);
@@ -271,7 +271,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             &e.current_contract_address(),
             &operator,
             &e.current_contract_address(),
-            &adjust_amount(&e, amount),
+            &adjust_amount(&e, amount)?,
         );
 
         event::deposit(&e, operator, e.current_contract_address(), amount);
@@ -312,14 +312,14 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             asset_client.transfer(
                 &e.current_contract_address(),
                 &operator,
-                &adjust_amount(&e, safe_sub(old_pending_stake_amount, deposit_amount)?),
+                &adjust_amount(&e, safe_sub(old_pending_stake_amount, deposit_amount)?)?,
             );
         } else if old_pending_stake_amount < deposit_amount {
             asset_client.transfer_from(
                 &e.current_contract_address(),
                 &operator,
                 &e.current_contract_address(),
-                &adjust_amount(&e, safe_sub(deposit_amount, old_pending_stake_amount)?),
+                &adjust_amount(&e, safe_sub(deposit_amount, old_pending_stake_amount)?)?,
             );
         }
 
@@ -352,7 +352,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             &e.current_contract_address(),
             &user,
             &e.current_contract_address(),
-            &adjust_amount(&e, amount),
+            &adjust_amount(&e, amount)?,
         );
 
         // Mint pumpBTC to user
@@ -384,7 +384,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
         if safe_sub(block_timestamp as i128, pending_unstake_time as i128)?
             < SECONDS_PER_DAY as i128
-            && pending_unstake_amount > 0
+            && pending_unstake_amount == 0
         {
             write_pending_unstake_time(&e, &user, slot, block_timestamp);
             write_pending_unstake_amount(&e, &user, slot, safe_add(pending_unstake_amount, amount)?);
@@ -445,7 +445,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             asset_client.transfer(
                 &e.current_contract_address(),
                 &user,
-                &adjust_amount(&e, safe_sub(amount, fee)?),
+                &adjust_amount(&e, safe_sub(amount, fee)?)?,
             );
 
             event::claim_slot(&e, user, amount, slot);
@@ -496,7 +496,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         asset_client.transfer(
             &e.current_contract_address(),
             &user,
-            &adjust_amount(&e, safe_sub(total_amount, fee)?),
+            &adjust_amount(&e, safe_sub(total_amount, fee)?)?,
         );
 
         event::claim_all(&e, user, total_amount);
@@ -540,7 +540,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         asset_client.transfer(
             &e.current_contract_address(),
             &user,
-            &adjust_amount(&e, safe_sub(amount, fee)?),
+            &adjust_amount(&e, safe_sub(amount, fee)?)?,
         );
 
         event::unstake_instant(&e, user, amount);

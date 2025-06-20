@@ -10,13 +10,14 @@ pub fn check_nonnegative_amount(amount: i128) -> Result<(), PumpBTCStakingError>
     Ok(())
 }
 
-pub fn adjust_amount(e: &Env, amount: i128) -> i128 {
+pub fn adjust_amount(e: &Env, amount: i128) -> Result<i128, PumpBTCStakingError> {
     let asset_decimal = read_asset_decimal(e);
     if asset_decimal == 8 {
-        amount
+        Ok(amount)
     } else {
-        let factor = 10i128.pow(safe_sub(asset_decimal as i128, 8).unwrap() as u32);
-        safe_mul(amount, factor).unwrap()
+        let decimal_diff = safe_sub(asset_decimal as i128, 8)?;
+        let factor = 10i128.pow(decimal_diff as u32);
+        safe_mul(amount, factor)
     }
 }
 
