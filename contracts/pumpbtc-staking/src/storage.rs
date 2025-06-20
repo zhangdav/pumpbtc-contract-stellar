@@ -30,13 +30,6 @@ pub enum DataKey {
     PendingUnstakeAmount(Address, u32),
 }
 
-
-pub fn extend_instance_ttl(e: &Env) {
-    e.storage()
-        .instance()
-        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-}
-
 pub fn read_total_staking_amount(e: &Env) -> i128 {
     e.storage()
         .instance()

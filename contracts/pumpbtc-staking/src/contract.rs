@@ -1,62 +1,69 @@
-use crate::admin::{has_administrator, read_administrator, write_administrator};
+use crate::auth::{check_operator, has_administrator, read_administrator, write_administrator};
 use crate::error::PumpBTCStakingError;
 use crate::event;
+use crate::math::{adjust_amount, check_nonnegative_amount};
 use crate::storage::*;
+use crate::utils::{check_unstake_allowed, extend_instance_ttl, get_date_slot};
 use soroban_sdk::{contract, contractimpl, token, Address, Env, IntoVal, Symbol};
 
 /// TODO: should use safe math, and create math.rs
 /// TODO: Add Ownable2Step
 /// TODO: Add Pausable
 /// TODO: should create contract interface and unit test
+pub trait PumpBTCStakingContractTrait {
+    fn initialize(
+        e: Env,
+        admin: Address,
+        pump_token_address: Address,
+        asset_token_address: Address,
+    ) -> Result<(), PumpBTCStakingError>;
+    fn set_stake_asset_cap(e: Env, new_total_staking_cap: i128) -> Result<(), PumpBTCStakingError>;
+    fn set_normal_unstake_fee(
+        e: Env,
+        new_normal_unstake_fee: i128,
+    ) -> Result<(), PumpBTCStakingError>;
+    fn set_instant_unstake_fee(
+        e: Env,
+        new_instant_unstake_fee: i128,
+    ) -> Result<(), PumpBTCStakingError>;
+    fn set_operator(e: Env, new_operator: Address) -> Result<(), PumpBTCStakingError>;
+    fn set_only_allow_stake(e: Env, only_allow_stake: bool) -> Result<(), PumpBTCStakingError>;
+    fn collect_fee(e: Env) -> Result<(), PumpBTCStakingError>;
+    fn withdraw(e: Env) -> Result<(), PumpBTCStakingError>;
+    fn deposit(e: Env, amount: i128) -> Result<(), PumpBTCStakingError>;
+    fn withdraw_and_deposit(
+        e: Env,
+        deposit_amount: i128,
+        withdraw_amount: i128,
+    ) -> Result<(), PumpBTCStakingError>;
+    fn stake(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError>;
+    fn unstake_request(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError>;
+    fn claim_slot(e: Env, user: Address, slot: u32) -> Result<(), PumpBTCStakingError>;
+    fn claim_all(e: Env, user: Address) -> Result<(), PumpBTCStakingError>;
+    fn unstake_instant(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError>;
+    fn get_max_date_slot(e: Env) -> u32;
+    fn get_pump_token(e: Env) -> Address;
+    fn get_asset_token(e: Env) -> Address;
+    fn get_asset_decimal(e: Env) -> u32;
+    fn get_total_staking_amount(e: Env) -> i128;
+    fn get_total_staking_cap(e: Env) -> i128;
+    fn get_total_requested_amount(e: Env) -> i128;
+    fn get_total_claimable_amount(e: Env) -> i128;
+    fn get_pending_stake_amount(e: Env) -> i128;
+    fn get_collected_fee(e: Env) -> i128;
+    fn get_operator(e: Env) -> Option<Address>;
+    fn get_normal_unstake_fee(e: Env) -> i128;
+    fn get_instant_unstake_fee(e: Env) -> i128;
+    fn get_only_allow_stake(e: Env) -> bool;
+    fn get_pending_unstake_time(e: Env, user: Address, slot: u32) -> u64;
+    fn get_pending_unstake_amount(e: Env, user: Address, slot: u32) -> i128;
+}
+
 #[contract]
 pub struct PumpBTCStaking;
 
-// ========================= Utils Functions =========================
-
-fn check_nonnegative_amount(amount: i128) -> Result<(), PumpBTCStakingError> {
-    if amount < 0 {
-        return Err(PumpBTCStakingError::NegativeAmountNotAllowed);
-    }
-    Ok(())
-}
-
-fn get_date_slot(timestamp: u64) -> u32 {
-    (((timestamp + UTC_OFFSET) / SECONDS_PER_DAY) % (MAX_DATE_SLOT as u64)) as u32
-}
-
-fn adjust_amount(e: &Env, amount: i128) -> i128 {
-    let asset_decimal = read_asset_decimal(e);
-    if asset_decimal == 8 {
-        amount
-    } else {
-        let factor = 10i128.pow(asset_decimal - 8);
-        amount * factor
-    }
-}
-
-fn check_operator(e: &Env, address: &Address) -> Result<(), PumpBTCStakingError> {
-    let operator = read_operator(e);
-    match operator {
-        Some(operator) => {
-            if &operator != address {
-                return Err(PumpBTCStakingError::CallerIsNotOperator);
-            }
-            address.require_auth();
-            Ok(())
-        }
-        None => Err(PumpBTCStakingError::NoOperatorSet),
-    }
-}
-
-fn check_unstake_allowed(e: &Env) -> Result<(), PumpBTCStakingError> {
-    if read_only_allow_stake(e) {
-        return Err(PumpBTCStakingError::OnlyAllowStakeAtFirst);
-    }
-    Ok(())
-}
-
 #[contractimpl]
-impl PumpBTCStaking {
+impl PumpBTCStakingContractTrait for PumpBTCStaking {
     fn initialize(
         e: Env,
         admin: Address,
@@ -423,7 +430,11 @@ impl PumpBTCStaking {
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
 
-        asset_client.transfer(&e.current_contract_address(), &user, &adjust_amount(&e, amount - fee));
+        asset_client.transfer(
+            &e.current_contract_address(),
+            &user,
+            &adjust_amount(&e, amount - fee),
+        );
 
         event::claim_slot(&e, user, amount, slot);
         Ok(())
@@ -442,7 +453,8 @@ impl PumpBTCStaking {
         for slot in 0..MAX_DATE_SLOT {
             let amount = read_pending_unstake_amount(&e, &user, slot);
             let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
-            let ready_to_claim = block_timestamp - pending_unstake_time >= (MAX_DATE_SLOT - 1) as u64 * SECONDS_PER_DAY;
+            let ready_to_claim = block_timestamp - pending_unstake_time
+                >= (MAX_DATE_SLOT - 1) as u64 * SECONDS_PER_DAY;
 
             if amount > 0 {
                 pending_count += 1;
@@ -452,7 +464,7 @@ impl PumpBTCStaking {
                 }
             }
         }
-        
+
         let fee = total_amount * read_normal_unstake_fee(&e) / 10000;
 
         check_nonnegative_amount(pending_count as i128)?;
@@ -464,7 +476,11 @@ impl PumpBTCStaking {
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
 
-        asset_client.transfer(&e.current_contract_address(), &user, &adjust_amount(&e, total_amount - fee));
+        asset_client.transfer(
+            &e.current_contract_address(),
+            &user,
+            &adjust_amount(&e, total_amount - fee),
+        );
 
         event::claim_all(&e, user, total_amount);
         Ok(())
@@ -504,7 +520,11 @@ impl PumpBTCStaking {
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
 
-        asset_client.transfer(&e.current_contract_address(), &user, &adjust_amount(&e, amount - fee));
+        asset_client.transfer(
+            &e.current_contract_address(),
+            &user,
+            &adjust_amount(&e, amount - fee),
+        );
 
         event::unstake_instant(&e, user, amount);
         Ok(())
@@ -551,7 +571,7 @@ impl PumpBTCStaking {
         extend_instance_ttl(&e);
         read_total_claimable_amount(&e)
     }
-    
+
     fn get_pending_stake_amount(e: Env) -> i128 {
         extend_instance_ttl(&e);
         read_pending_stake_amount(&e)
@@ -561,7 +581,7 @@ impl PumpBTCStaking {
         extend_instance_ttl(&e);
         read_collected_fee(&e)
     }
-    
+
     fn get_operator(e: Env) -> Option<Address> {
         extend_instance_ttl(&e);
         read_operator(&e)
@@ -581,7 +601,7 @@ impl PumpBTCStaking {
         extend_instance_ttl(&e);
         read_only_allow_stake(&e)
     }
-    
+
     fn get_pending_unstake_time(e: Env, user: Address, slot: u32) -> u64 {
         extend_instance_ttl(&e);
         read_pending_unstake_time(&e, &user, slot)
