@@ -2,9 +2,12 @@ use crate::admin::{has_administrator, read_administrator, write_administrator};
 use crate::error::PumpBTCStakingError;
 use crate::event;
 use crate::storage::*;
-use crate::storage_types::{MAX_DATE_SLOT, SECONDS_PER_DAY, UTC_OFFSET};
 use soroban_sdk::{contract, contractimpl, token, Address, Env, IntoVal, Symbol};
 
+/// TODO: should use safe math, and create math.rs
+/// TODO: Add Ownable2Step
+/// TODO: Add Pausable
+/// TODO: should create contract interface and unit test
 #[contract]
 pub struct PumpBTCStaking;
 
@@ -428,6 +431,42 @@ impl PumpBTCStaking {
 
     fn claim_all(e: Env, user: Address) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
+
+        user.require_auth();
+        check_unstake_allowed(&e)?;
+
+        let mut total_amount: i128 = 0;
+        let mut pending_count: u32 = 0;
+        let block_timestamp = e.ledger().timestamp();
+
+        for slot in 0..MAX_DATE_SLOT {
+            let amount = read_pending_unstake_amount(&e, &user, slot);
+            let pending_unstake_time = read_pending_unstake_time(&e, &user, slot);
+            let ready_to_claim = block_timestamp - pending_unstake_time >= (MAX_DATE_SLOT - 1) as u64 * SECONDS_PER_DAY;
+
+            if amount > 0 {
+                pending_count += 1;
+                if ready_to_claim {
+                    total_amount += amount;
+                    write_pending_unstake_amount(&e, &user, slot, 0);
+                }
+            }
+        }
+        
+        let fee = total_amount * read_normal_unstake_fee(&e) / 10000;
+
+        check_nonnegative_amount(pending_count as i128)?;
+        check_nonnegative_amount(total_amount)?;
+
+        let collected_fee = read_collected_fee(&e);
+        write_collected_fee(&e, collected_fee + fee);
+
+        let asset_token = read_asset_token_address(&e);
+        let asset_client = token::Client::new(&e, &asset_token);
+
+        asset_client.transfer(&e.current_contract_address(), &user, &adjust_amount(&e, total_amount - fee));
+
+        event::claim_all(&e, user, total_amount);
         Ok(())
     }
 
@@ -471,38 +510,85 @@ impl PumpBTCStaking {
         Ok(())
     }
 
-    // // ========================= Getter Functions =========================
+    // ========================= Getter Functions =========================
 
-    // pub fn get_staking_info(e: Env) -> (i128, i128, i128, i128, i128) {
-    //     (
-    //         read_total_staking_amount(&e),
-    //         read_total_staking_cap(&e),
-    //         read_total_requested_amount(&e),
-    //         read_total_claimable_amount(&e),
-    //         read_pending_stake_amount(&e),
-    //     )
-    // }
+    fn get_max_date_slot(e: Env) -> u32 {
+        extend_instance_ttl(&e);
+        MAX_DATE_SLOT
+    }
 
-    // pub fn get_fees(e: Env) -> (i128, i128, i128) {
-    //     (
-    //         read_normal_unstake_fee(&e),
-    //         read_instant_unstake_fee(&e),
-    //         read_collected_fee(&e),
-    //     )
-    // }
+    fn get_pump_token(e: Env) -> Address {
+        extend_instance_ttl(&e);
+        read_pump_token_address(&e)
+    }
 
-    // pub fn get_pending_unstake(e: Env, user: Address, slot: u32) -> (i128, u64) {
-    //     (
-    //         read_pending_unstake_amount(&e, &user, slot),
-    //         read_pending_unstake_time(&e, &user, slot),
-    //     )
-    // }
+    fn get_asset_token(e: Env) -> Address {
+        extend_instance_ttl(&e);
+        read_asset_token_address(&e)
+    }
 
-    // pub fn get_addresses(e: Env) -> (Address, Address, Option<Address>) {
-    //     (
-    //         read_pump_token_address(&e),
-    //         read_asset_token_address(&e),
-    //         read_operator(&e),
-    //     )
-    // }
+    fn get_asset_decimal(e: Env) -> u32 {
+        extend_instance_ttl(&e);
+        read_asset_decimal(&e)
+    }
+
+    fn get_total_staking_amount(e: Env) -> i128 {
+        extend_instance_ttl(&e);
+        read_total_staking_amount(&e)
+    }
+
+    fn get_total_staking_cap(e: Env) -> i128 {
+        extend_instance_ttl(&e);
+        read_total_staking_cap(&e)
+    }
+
+    fn get_total_requested_amount(e: Env) -> i128 {
+        extend_instance_ttl(&e);
+        read_total_requested_amount(&e)
+    }
+
+    fn get_total_claimable_amount(e: Env) -> i128 {
+        extend_instance_ttl(&e);
+        read_total_claimable_amount(&e)
+    }
+    
+    fn get_pending_stake_amount(e: Env) -> i128 {
+        extend_instance_ttl(&e);
+        read_pending_stake_amount(&e)
+    }
+
+    fn get_collected_fee(e: Env) -> i128 {
+        extend_instance_ttl(&e);
+        read_collected_fee(&e)
+    }
+    
+    fn get_operator(e: Env) -> Option<Address> {
+        extend_instance_ttl(&e);
+        read_operator(&e)
+    }
+
+    fn get_normal_unstake_fee(e: Env) -> i128 {
+        extend_instance_ttl(&e);
+        read_normal_unstake_fee(&e)
+    }
+
+    fn get_instant_unstake_fee(e: Env) -> i128 {
+        extend_instance_ttl(&e);
+        read_instant_unstake_fee(&e)
+    }
+
+    fn get_only_allow_stake(e: Env) -> bool {
+        extend_instance_ttl(&e);
+        read_only_allow_stake(&e)
+    }
+    
+    fn get_pending_unstake_time(e: Env, user: Address, slot: u32) -> u64 {
+        extend_instance_ttl(&e);
+        read_pending_unstake_time(&e, &user, slot)
+    }
+
+    fn get_pending_unstake_amount(e: Env, user: Address, slot: u32) -> i128 {
+        extend_instance_ttl(&e);
+        read_pending_unstake_amount(&e, &user, slot)
+    }
 }

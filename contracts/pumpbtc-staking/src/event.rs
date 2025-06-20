@@ -199,3 +199,19 @@ pub(crate) fn unstake_instant(e: &Env, user: Address, amount: i128) {
     e.events()
         .publish(("PumpBTCStaking", symbol_short!("unstake_i")), event);
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimAllEvent {
+    pub user: Address,
+    pub amount: i128,
+}
+
+pub(crate) fn claim_all(e: &Env, user: Address, amount: i128) {
+    let event: ClaimAllEvent = ClaimAllEvent {
+        user,
+        amount,
+    };
+    e.events()
+        .publish(("PumpBTCStaking", symbol_short!("claim_all")), event);
+}
