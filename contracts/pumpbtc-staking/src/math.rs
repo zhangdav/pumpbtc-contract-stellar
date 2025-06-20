@@ -10,13 +10,14 @@ pub fn check_nonnegative_amount(amount: i128) -> Result<(), PumpBTCStakingError>
     Ok(())
 }
 
+// adjust amount could be overflow if asset_decimal is less than 8
 pub fn adjust_amount(e: &Env, amount: i128) -> i128 {
     let asset_decimal = read_asset_decimal(e);
     if asset_decimal == 8 {
         amount
     } else {
-        let factor = 10i128.pow(asset_decimal - 8);
-        amount * factor
+        let factor = 10i128.pow(safe_sub(asset_decimal as i128, 8).unwrap() as u32);
+        safe_mul(amount, factor).unwrap()
     }
 }
 
