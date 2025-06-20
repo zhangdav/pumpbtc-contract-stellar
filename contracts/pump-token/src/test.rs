@@ -1,15 +1,15 @@
 #![cfg(test)]
 extern crate std;
 
-use crate::{contract::Token, TokenClient};
+use crate::{contract::PumpToken, PumpTokenClient};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
     Address, Env, IntoVal, Symbol,
 };
 
-fn create_token<'a>(e: &Env, admin: &Address, minter: &Address) -> TokenClient<'a> {
-    let token = TokenClient::new(e, &e.register(Token, ()));
+fn create_token<'a>(e: &Env, admin: &Address, minter: &Address) -> PumpTokenClient<'a> {
+    let token = PumpTokenClient::new(e, &e.register(PumpToken, ()));
     token.initialize(
         admin,
         minter,
@@ -26,7 +26,6 @@ fn test() {
     e.mock_all_auths();
 
     let admin1 = Address::generate(&e);
-    let admin2 = Address::generate(&e);
     let minter1 = Address::generate(&e);
     let minter2 = Address::generate(&e);
     let user1 = Address::generate(&e);
@@ -110,22 +109,6 @@ fn test() {
     token.transfer(&user1, &user3, &300);
     assert_eq!(token.balance(&user1), 500);
     assert_eq!(token.balance(&user3), 300);
-
-    token.set_admin(&admin2);
-    assert_eq!(
-        e.auths(),
-        std::vec![(
-            admin1.clone(),
-            AuthorizedInvocation {
-                function: AuthorizedFunction::Contract((
-                    token.address.clone(),
-                    symbol_short!("set_admin"),
-                    (&admin2,).into_val(&e),
-                )),
-                sub_invocations: std::vec![]
-            }
-        )]
-    );
 
     // Increase to 500
     token.approve(&user2, &user3, &500, &200);
@@ -268,7 +251,7 @@ fn decimal_is_over_max() {
     let e = Env::default();
     let admin = Address::generate(&e);
     let minter = Address::generate(&e);
-    let token = TokenClient::new(&e, &e.register(Token, ()));
+    let token = PumpTokenClient::new(&e, &e.register(PumpToken, ()));
     token.initialize(
         &admin,
         &minter,

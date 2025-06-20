@@ -1,30 +1,52 @@
-use crate::admin::{has_administrator, read_administrator, write_administrator};
+use crate::admin::{has_administrator, read_administrator, write_administrator, read_pending_administrator, remove_pending_administrator, write_pending_administrator};
 use crate::allowance::{read_allowance, spend_allowance, write_allowance};
 use crate::balance::{read_balance, receive_balance, spend_balance};
 use crate::metadata::{read_decimal, read_name, read_symbol, write_metadata};
 use crate::minter::{read_minter, write_minter};
+use crate::error::PumpTokenError;
 use crate::storage_types::{AllowanceDataKey, AllowanceValue, DataKey};
 use crate::storage_types::{INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD};
 use soroban_sdk::token::{self, Interface as _};
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 use soroban_token_sdk::metadata::TokenMetadata;
 use soroban_token_sdk::TokenUtils;
+use crate::event;
 
 fn check_nonnegative_amount(amount: i128) {
-    if amount <= 0 {
+    if amount < 0 {
         panic!("negative amount is not allowed: {}", amount)
     }
 }
 
-/// TODO: Add Check for minter
-/// TODO: Add Ownable2Step
-/// TODO: Change name to PumpToken
+/// PumpToken - Custom token contract with Ownable2Step and minting capabilities
+pub trait PumpTokenTrait {
+    fn initialize(
+        e: Env,
+        admin: Address,
+        minter: Address,
+        decimal: u32,
+        name: String,
+        symbol: String,
+    );
+    
+    fn transfer_admin(e: Env, new_admin: Address) -> Result<(), PumpTokenError>;
+    fn accept_admin(e: Env) -> Result<(), PumpTokenError>;
+    fn renounce_admin(e: Env) -> Result<(), PumpTokenError>;
+    fn get_pending_admin(e: Env) -> Option<Address>;
+    
+    fn mint(e: Env, to: Address, amount: i128);
+    fn set_minter(e: Env, new_minter: Address);
+    fn get_minter(e: Env) -> Address;
+    
+    fn get_allowance(e: Env, from: Address, spender: Address) -> Option<AllowanceValue>;
+}
+
 #[contract]
-pub struct Token;
+pub struct PumpToken;
 
 #[contractimpl]
-impl Token {
-    pub fn initialize(
+impl PumpTokenTrait for PumpToken {
+    fn initialize(
         e: Env,
         admin: Address,
         minter: Address,
@@ -52,8 +74,63 @@ impl Token {
         )
     }
 
-    // Only minter can call mint
-    pub fn mint(e: Env, to: Address, amount: i128) {
+    fn transfer_admin(e: Env, new_admin: Address) -> Result<(), PumpTokenError> {
+        e.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+
+        let admin = read_administrator(&e);
+        admin.require_auth();
+
+        write_pending_administrator(&e, &new_admin);
+        event::transfer_admin(&e, admin, new_admin);
+
+        Ok(())
+    }
+
+    fn accept_admin(e: Env) -> Result<(), PumpTokenError> {
+        e.storage()
+        .instance()
+        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+
+        let pending_admin = read_pending_administrator(&e);
+        if pending_admin.is_none() {
+            return Err(PumpTokenError::NoPendingAdminTransfer);
+        }
+
+        let pending_admin = pending_admin.unwrap();
+        pending_admin.require_auth();
+
+        let old_admin = read_administrator(&e);
+        write_administrator(&e, &pending_admin);
+        remove_pending_administrator(&e);
+
+        event::accept_admin(&e, old_admin, pending_admin);
+        Ok(())
+    }
+
+    fn renounce_admin(e: Env) -> Result<(), PumpTokenError> {
+        e.storage()
+        .instance()
+        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+
+        let admin = read_administrator(&e);
+        admin.require_auth();
+
+        remove_pending_administrator(&e);
+        event::renounce_admin(&e, admin);
+
+        Ok(())
+    }
+
+    fn get_pending_admin(e: Env) -> Option<Address> {
+        e.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        read_pending_administrator(&e)
+    }
+
+    fn mint(e: Env, to: Address, amount: i128) {
         check_nonnegative_amount(amount);
         let minter = read_minter(&e);
         minter.require_auth();
@@ -66,20 +143,7 @@ impl Token {
         TokenUtils::new(&e).events().mint(minter, to, amount);
     }
 
-    pub fn set_admin(e: Env, new_admin: Address) {
-        let admin = read_administrator(&e);
-        admin.require_auth();
-
-        e.storage()
-            .instance()
-            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-
-        write_administrator(&e, &new_admin);
-        TokenUtils::new(&e).events().set_admin(admin, new_admin);
-    }
-
-    // Only admin can set new minter
-    pub fn set_minter(e: Env, new_minter: Address) {
+    fn set_minter(e: Env, new_minter: Address) {
         let admin = read_administrator(&e);
         admin.require_auth();
 
@@ -92,7 +156,14 @@ impl Token {
             .publish((symbol_short!("minter"), admin), new_minter);
     }
 
-    pub fn get_allowance(e: Env, from: Address, spender: Address) -> Option<AllowanceValue> {
+    fn get_minter(e: Env) -> Address {
+        e.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        read_minter(&e)
+    }
+
+    fn get_allowance(e: Env, from: Address, spender: Address) -> Option<AllowanceValue> {
         let key = DataKey::Allowance(AllowanceDataKey { from, spender });
         let allowance = e.storage().temporary().get::<_, AllowanceValue>(&key);
         allowance
@@ -100,7 +171,7 @@ impl Token {
 }
 
 #[contractimpl]
-impl token::Interface for Token {
+impl token::Interface for PumpToken {
     fn allowance(e: Env, from: Address, spender: Address) -> i128 {
         e.storage()
             .instance()

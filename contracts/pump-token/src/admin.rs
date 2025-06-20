@@ -16,3 +16,18 @@ pub fn write_administrator(e: &Env, id: &Address) {
     let key = DataKey::Admin;
     e.storage().instance().set(&key, id);
 }
+
+pub fn read_pending_administrator(e: &Env) -> Option<Address> {
+    let key = DataKey::PendingAdmin;
+    e.storage().instance().get(&key)
+}
+
+pub fn write_pending_administrator(e: &Env, id: &Address) {
+    let key = DataKey::PendingAdmin;
+    e.storage().instance().set(&key, id);
+}
+
+pub fn remove_pending_administrator(e: &Env) {
+    let key = DataKey::PendingAdmin;
+    e.storage().instance().remove(&key);
+}
