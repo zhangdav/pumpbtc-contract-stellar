@@ -13,6 +13,7 @@ pub(crate) const MAX_DATE_SLOT: u32 = 10;
 #[contracttype]
 pub enum DataKey {
     Admin,
+    PendingAdmin,
     Operator,
     PumpTokenAddress,
     AssetTokenAddress,

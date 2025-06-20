@@ -21,4 +21,5 @@ pub enum PumpBTCStakingError {
     AssetDecimalTooSmall = 14,
     NoPendingUnstake = 15,
     InvalidPumpTokenDecimal = 16,
+    NoPendingAdminTransfer = 17,
 }

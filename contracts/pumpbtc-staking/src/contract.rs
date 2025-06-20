@@ -1,4 +1,7 @@
-use crate::auth::{has_administrator, read_administrator, write_administrator};
+use crate::auth::{
+    has_administrator, read_administrator, read_pending_administrator,
+    remove_pending_administrator, write_administrator, write_pending_administrator,
+};
 use crate::error::PumpBTCStakingError;
 use crate::event;
 use crate::math::{
@@ -8,7 +11,6 @@ use crate::storage::*;
 use crate::utils::{check_unstake_allowed, extend_instance_ttl, get_date_slot};
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, IntoVal, Symbol};
 
-/// TODO: Add Ownable2Step
 /// TODO: Add Pausable
 pub trait PumpBTCStakingContractTrait {
     fn initialize(
@@ -18,6 +20,12 @@ pub trait PumpBTCStakingContractTrait {
         asset_token_address: Address,
     ) -> Result<(), PumpBTCStakingError>;
     fn upgrade(e: Env, hash: BytesN<32>);
+
+    fn transfer_admin(e: Env, new_admin: Address) -> Result<(), PumpBTCStakingError>;
+    fn accept_admin(e: Env) -> Result<(), PumpBTCStakingError>;
+    fn renounce_admin(e: Env) -> Result<(), PumpBTCStakingError>;
+    fn get_pending_admin(e: Env) -> Option<Address>;
+
     fn set_stake_asset_cap(e: Env, new_total_staking_cap: i128) -> Result<(), PumpBTCStakingError>;
     fn set_normal_unstake_fee(
         e: Env,
@@ -32,10 +40,7 @@ pub trait PumpBTCStakingContractTrait {
     fn collect_fee(e: Env) -> Result<(), PumpBTCStakingError>;
     fn withdraw(e: Env) -> Result<(), PumpBTCStakingError>;
     fn deposit(e: Env, amount: i128) -> Result<(), PumpBTCStakingError>;
-    fn withdraw_and_deposit(
-        e: Env,
-        deposit_amount: i128,
-    ) -> Result<(), PumpBTCStakingError>;
+    fn withdraw_and_deposit(e: Env, deposit_amount: i128) -> Result<(), PumpBTCStakingError>;
     fn stake(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError>;
     fn unstake_request(e: Env, user: Address, amount: i128) -> Result<(), PumpBTCStakingError>;
     fn claim_slot(e: Env, user: Address, slot: u32) -> Result<(), PumpBTCStakingError>;
@@ -98,6 +103,48 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         } else {
             return Err(PumpBTCStakingError::AlreadyInitialized);
         }
+    }
+
+    fn transfer_admin(e: Env, new_admin: Address) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
+
+        let admin = read_administrator(&e);
+        admin.require_auth();
+
+        write_pending_administrator(&e, &new_admin);
+        event::transfer_admin(&e, admin, new_admin);
+        Ok(())
+    }
+
+    fn accept_admin(e: Env) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
+
+        let pending_admin = read_pending_administrator(&e);
+        if pending_admin.is_none() {
+            return Err(PumpBTCStakingError::NoPendingAdminTransfer);
+        }
+
+        let pending_admin = pending_admin.unwrap();
+        pending_admin.require_auth();
+
+        let old_admin = read_administrator(&e);
+        write_administrator(&e, &pending_admin);
+        remove_pending_administrator(&e);
+
+        event::accept_admin(&e, old_admin, pending_admin);
+        Ok(())
+    }
+
+    fn renounce_admin(e: Env) -> Result<(), PumpBTCStakingError> {
+        extend_instance_ttl(&e);
+
+        let admin = read_administrator(&e);
+        admin.require_auth();
+
+        remove_pending_administrator(&e);
+        event::renounce_admin(&e, admin);
+
+        Ok(())
     }
 
     // ========================= Owner Functions =========================
@@ -284,10 +331,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         Ok(())
     }
 
-    fn withdraw_and_deposit(
-        e: Env,
-        deposit_amount: i128
-    ) -> Result<(), PumpBTCStakingError> {
+    fn withdraw_and_deposit(e: Env, deposit_amount: i128) -> Result<(), PumpBTCStakingError> {
         extend_instance_ttl(&e);
 
         let operator = read_operator(&e);
@@ -393,7 +437,12 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             || pending_unstake_amount == 0
         {
             write_pending_unstake_time(&e, &user, slot, block_timestamp);
-            write_pending_unstake_amount(&e, &user, slot, safe_add(pending_unstake_amount, amount)?);
+            write_pending_unstake_amount(
+                &e,
+                &user,
+                slot,
+                safe_add(pending_unstake_amount, amount)?,
+            );
 
             let total_staking_amount = read_total_staking_amount(&e);
             write_total_staking_amount(&e, safe_sub(total_staking_amount, amount)?);
@@ -560,6 +609,11 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
     }
 
     // ========================= Getter Functions =========================
+
+    fn get_pending_admin(e: Env) -> Option<Address> {
+        extend_instance_ttl(&e);
+        read_pending_administrator(&e)
+    }
 
     fn get_max_date_slot(e: Env) -> u32 {
         extend_instance_ttl(&e);
