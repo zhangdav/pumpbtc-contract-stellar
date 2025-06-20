@@ -1,16 +1,19 @@
-use crate::admin::{has_administrator, read_administrator, write_administrator, read_pending_administrator, remove_pending_administrator, write_pending_administrator};
+use crate::admin::{
+    has_administrator, read_administrator, read_pending_administrator,
+    remove_pending_administrator, write_administrator, write_pending_administrator,
+};
 use crate::allowance::{read_allowance, spend_allowance, write_allowance};
 use crate::balance::{read_balance, receive_balance, spend_balance};
+use crate::error::PumpTokenError;
+use crate::event;
 use crate::metadata::{read_decimal, read_name, read_symbol, write_metadata, DECIMAL};
 use crate::minter::{read_minter, write_minter};
-use crate::error::PumpTokenError;
 use crate::storage_types::{AllowanceDataKey, AllowanceValue, DataKey};
 use crate::storage_types::{INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD};
 use soroban_sdk::token::{self, Interface as _};
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 use soroban_token_sdk::metadata::TokenMetadata;
 use soroban_token_sdk::TokenUtils;
-use crate::event;
 
 fn check_nonnegative_amount(amount: i128) {
     if amount < 0 {
@@ -20,23 +23,17 @@ fn check_nonnegative_amount(amount: i128) {
 
 /// PumpToken - Custom token contract with Ownable2Step and minting capabilities
 pub trait PumpTokenTrait {
-    fn initialize(
-        e: Env,
-        admin: Address,
-        minter: Address,
-        name: String,
-        symbol: String,
-    );
-    
+    fn initialize(e: Env, admin: Address, minter: Address, name: String, symbol: String);
+
     fn transfer_admin(e: Env, new_admin: Address) -> Result<(), PumpTokenError>;
     fn accept_admin(e: Env) -> Result<(), PumpTokenError>;
     fn renounce_admin(e: Env) -> Result<(), PumpTokenError>;
     fn get_pending_admin(e: Env) -> Option<Address>;
-    
+
     fn mint(e: Env, to: Address, amount: i128);
     fn set_minter(e: Env, new_minter: Address);
     fn get_minter(e: Env) -> Address;
-    
+
     fn get_allowance(e: Env, from: Address, spender: Address) -> Option<AllowanceValue>;
 }
 
@@ -45,13 +42,7 @@ pub struct PumpToken;
 
 #[contractimpl]
 impl PumpTokenTrait for PumpToken {
-    fn initialize(
-        e: Env,
-        admin: Address,
-        minter: Address,
-        name: String,
-        symbol: String,
-    ) {
+    fn initialize(e: Env, admin: Address, minter: Address, name: String, symbol: String) {
         if has_administrator(&e) {
             panic!("already initialized")
         }
@@ -85,8 +76,8 @@ impl PumpTokenTrait for PumpToken {
 
     fn accept_admin(e: Env) -> Result<(), PumpTokenError> {
         e.storage()
-        .instance()
-        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 
         let pending_admin = read_pending_administrator(&e);
         if pending_admin.is_none() {
@@ -106,8 +97,8 @@ impl PumpTokenTrait for PumpToken {
 
     fn renounce_admin(e: Env) -> Result<(), PumpTokenError> {
         e.storage()
-        .instance()
-        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 
         let admin = read_administrator(&e);
         admin.require_auth();
