@@ -18,4 +18,5 @@ pub enum PumpBTCStakingError {
     NotReachedClaimableTime = 11,
     InsufficientPendingStakeAmount = 12,
     MathOverflow = 13,
+    AssetDecimalTooSmall = 14,
 }
