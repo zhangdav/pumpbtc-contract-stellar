@@ -14,6 +14,7 @@ pub(crate) const MAX_DATE_SLOT: u32 = 10;
 pub enum DataKey {
     Admin,
     PendingAdmin,
+    Paused,
     Operator,
     PumpTokenAddress,
     AssetTokenAddress,
@@ -205,4 +206,15 @@ pub fn read_pending_unstake_amount(e: &Env, user: &Address, slot: u32) -> i128 {
 pub fn write_pending_unstake_amount(e: &Env, user: &Address, slot: u32, amount: i128) {
     let key = DataKey::PendingUnstakeAmount(user.clone(), slot);
     e.storage().temporary().set(&key, &amount);
+}
+
+pub fn read_paused(e: &Env) -> bool {
+    e.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+pub fn write_paused(e: &Env, paused: bool) {
+    e.storage().instance().set(&DataKey::Paused, &paused);
 }
