@@ -1,4 +1,4 @@
-use crate::auth::{check_operator, has_administrator, read_administrator, write_administrator};
+use crate::auth::{has_administrator, read_administrator, write_administrator};
 use crate::error::PumpBTCStakingError;
 use crate::event;
 use crate::math::{
@@ -78,8 +78,8 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
             let asset_client = token::Client::new(&e, &asset_token_address);
             let asset_decimal = asset_client.decimals();
-            if asset_decimal < 8 {
-                return Err(PumpBTCStakingError::AssetDecimalTooSmall);
+            if asset_decimal != 8 {
+                return Err(PumpBTCStakingError::InvalidAssetDecimal);
             }
             write_asset_decimal(&e, asset_decimal);
 
@@ -229,7 +229,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
         }
 
         let operator = operator.unwrap();
-        check_operator(&e, &operator)?;
+        operator.require_auth();
 
         let old_pending_amount = read_pending_stake_amount(&e);
         if old_pending_amount > 0 {
@@ -258,7 +258,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             return Err(PumpBTCStakingError::NoOperatorSet);
         }
         let operator = operator.unwrap();
-        check_operator(&e, &operator)?;
+        operator.require_auth();
 
         check_nonnegative_amount(amount)?;
 
@@ -289,7 +289,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
             return Err(PumpBTCStakingError::NoOperatorSet);
         }
         let operator = operator.unwrap();
-        check_operator(&e, &operator)?;
+        operator.require_auth();
 
         let asset_token = read_asset_token_address(&e);
         let asset_client = token::Client::new(&e, &asset_token);
@@ -384,7 +384,7 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
         if safe_sub(block_timestamp as i128, pending_unstake_time as i128)?
             < SECONDS_PER_DAY as i128
-            && pending_unstake_amount == 0
+            || pending_unstake_amount == 0
         {
             write_pending_unstake_time(&e, &user, slot, block_timestamp);
             write_pending_unstake_amount(&e, &user, slot, safe_add(pending_unstake_amount, amount)?);
@@ -482,8 +482,12 @@ impl PumpBTCStakingContractTrait for PumpBTCStaking {
 
         let fee = safe_div(safe_mul(total_amount, read_normal_unstake_fee(&e))?, 10000)?;
 
-        check_nonnegative_amount(pending_count as i128)?;
-        check_nonnegative_amount(total_amount)?;
+        if pending_count <= 0 {
+            return Err(PumpBTCStakingError::NoPendingUnstake);
+        }
+        if total_amount <= 0 {
+            return Err(PumpBTCStakingError::NotReachedClaimableTime);
+        }
 
         write_total_claimable_amount(&e, safe_sub(read_total_claimable_amount(&e), total_amount)?);
         write_total_requested_amount(&e, safe_sub(read_total_requested_amount(&e), total_amount)?);
