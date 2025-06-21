@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "contracts/pumpbtc-staking",
     "contracts/pump-token",
+    "contracts/asset-token",
 ]
 
 [profile.release-with-logs]
