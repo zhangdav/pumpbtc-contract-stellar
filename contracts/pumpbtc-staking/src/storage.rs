@@ -79,9 +79,7 @@ pub fn read_asset_decimal(e: &Env) -> u32 {
 }
 
 pub fn write_asset_decimal(e: &Env, decimal: u32) {
-    e.storage()
-        .instance()
-        .set(&DataKey::AssetDecimal, &decimal);
+    e.storage().instance().set(&DataKey::AssetDecimal, &decimal);
 }
 
 pub fn read_operator(e: &Env) -> Option<Address> {
@@ -89,9 +87,7 @@ pub fn read_operator(e: &Env) -> Option<Address> {
 }
 
 pub fn write_operator(e: &Env, operator: &Address) {
-    e.storage()
-        .instance()
-        .set(&DataKey::Operator, operator);
+    e.storage().instance().set(&DataKey::Operator, operator);
 }
 
 pub fn read_normal_unstake_fee(e: &Env) -> i128 {
@@ -102,9 +98,7 @@ pub fn read_normal_unstake_fee(e: &Env) -> i128 {
 }
 
 pub fn write_normal_unstake_fee(e: &Env, fee: i128) {
-    e.storage()
-        .instance()
-        .set(&DataKey::NormalUnstakeFee, &fee);
+    e.storage().instance().set(&DataKey::NormalUnstakeFee, &fee);
 }
 
 pub fn read_instant_unstake_fee(e: &Env) -> i128 {
@@ -141,9 +135,7 @@ pub fn read_paused(e: &Env) -> bool {
 }
 
 pub fn write_paused(e: &Env, paused: bool) {
-    e.storage()
-        .instance()
-        .set(&DataKey::Paused, &paused);
+    e.storage().instance().set(&DataKey::Paused, &paused);
 }
 
 pub fn read_total_staking_amount(e: &Env) -> i128 {
