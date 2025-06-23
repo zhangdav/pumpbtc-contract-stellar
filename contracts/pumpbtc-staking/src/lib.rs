@@ -6,7 +6,7 @@ mod error;
 mod event;
 mod math;
 mod storage;
-mod test;
 mod utils;
+mod tests;
 
 pub use contract::PumpBTCStakingClient;
